@@ -206,7 +206,7 @@ class StillnessEditor:
                 gx, gy = screen_to_world(mx, my, self.zoom_level, self.camera_offset)
                 if 0 <= gx < GRID_SIZE and 0 <= gy < GRID_SIZE:
                     if event.button == 1:
-                        if event.mod & pygame.KMOD_SHIFT: # BUCKET FILL
+                        if pygame.key.get_mods() & pygame.KMOD_SHIFT: # BUCKET FILL
                             self.bucket_fill(gx, gy)
                         elif self.current_layer == LAYER_COLLISION: 
                             self.save_snapshot(); self.grid[gx][gy]["collision"] = True
