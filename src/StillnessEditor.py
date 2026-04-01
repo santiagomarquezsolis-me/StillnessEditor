@@ -155,7 +155,9 @@ class StillnessEditor:
                     if event.key == pygame.K_s: self.save_map()
                 else:
                     if event.key == pygame.K_BACKSPACE: self.search_query = self.search_query[:-1]; self.refresh_palette()
-                    elif event.key == pygame.K_ESCAPE: self.search_query = ""; self.refresh_palette()
+                    elif event.key == pygame.K_ESCAPE:
+                        if self.search_query: self.search_query = ""; self.refresh_palette()
+                        else: self.show_confirmation("exit")
                     elif event.unicode.isprintable(): 
                         self.search_query += event.unicode
                         self.refresh_palette()
@@ -291,6 +293,42 @@ class StillnessEditor:
 
         self.modal_rect = pygame.Rect(self.w//2 - 200, self.h//2 - 100, 400, 200)
         
+    def show_confirmation(self, target):
+        self.confirm_target = target
+        self.modal_buttons = [
+            {"rect": pygame.Rect(self.modal_rect.x + 50, self.modal_rect.y + 130, 120, 40), "text": "YES", "value": True},
+            {"rect": pygame.Rect(self.modal_rect.x + 230, self.modal_rect.y + 130, 120, 40), "text": "NO", "value": False}
+        ]
+
+    def save_map(self):
+        try:
+            path = get_file_path(os.path.join(BASE_DIR, "maps"), "json", save=True)
+            if not path: return
+            with open(path, 'w') as f:
+                json.dump({"version": VERSION, "grid": self.grid}, f)
+            self.status_message = "MAP SAVED SUCCESSFULLY"
+            self.status_timer = 180
+        except Exception as e:
+            self.status_message = f"ERROR SAVING MAP: {e}"
+            self.status_timer = 180
+
+    def load_map(self):
+        try:
+            path = get_file_path(os.path.join(BASE_DIR, "maps"), "json")
+            if not path: return
+            with open(path, 'r') as f:
+                data = json.load(f)
+                if data.get("version") != VERSION:
+                    self.status_message = f"VERSION MISMATCH: {data.get('version')} vs {VERSION}"
+                    self.status_timer = 180
+                self.grid = data["grid"]
+                self.undo_stack.clear(); self.redo_stack.clear()
+            self.status_message = "MAP LOADED"
+            self.status_timer = 120
+        except Exception as e:
+            self.status_message = f"ERROR LOADING MAP: {e}"
+            self.status_timer = 180
+
     def handle_menu_action(self, val):
         if val in [LAYER_BASE, LAYER_OBJECTS, LAYER_VFX, LAYER_COLLISION, LAYER_ANIM]: 
             self.current_layer = val; self.current_cat = None; self.refresh_palette()
