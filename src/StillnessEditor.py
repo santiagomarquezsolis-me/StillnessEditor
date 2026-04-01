@@ -271,6 +271,22 @@ class StillnessEditor:
                                 scy = (x + y) * (zh // 2) + self.camera_offset.y
                                 self.screen.blit(img_s, (scx - img_s.get_width()//2, scy + zh//2 - img_s.get_height()))
 
+                    # Draw Coordinates (REQ-VIS-01) - only if zoom is close enough
+                    if self.zoom_level > 1.2:
+                        coord_txt = self.font.render(f"{x},{y}", True, (80, 80, 100))
+                        self.screen.blit(coord_txt, (sx - coord_txt.get_width()//2, sy + zh//2 - coord_txt.get_height()//2))
+
+            # Draw XYZ Axis Gizmo (REQ-VIS-02)
+            axis_len = 60
+            o_x, o_y = 100, self.h - 100
+            iso_x = (1, 0.5); iso_y = (-1, 0.5); iso_z = (0, -1)
+            pygame.draw.line(self.screen, (255, 50, 50), (o_x, o_y), (o_x + iso_x[0]*axis_len, o_y + iso_x[1]*axis_len), 2) # X
+            pygame.draw.line(self.screen, (50, 255, 50), (o_x, o_y), (o_x + iso_y[0]*axis_len, o_y + iso_y[1]*axis_len), 2) # Y
+            pygame.draw.line(self.screen, (50, 100, 255), (o_x, o_y), (o_x + iso_z[0]*axis_len, o_y + iso_z[1]*axis_len), 2) # Z
+            self.screen.blit(self.bold_font.render("X", True, (255, 50, 50)), (o_x + iso_x[0]*axis_len + 5, o_y + iso_x[1]*axis_len))
+            self.screen.blit(self.bold_font.render("Y", True, (50, 255, 50)), (o_x + iso_y[0]*axis_len - 15, o_y + iso_y[1]*axis_len))
+            self.screen.blit(self.bold_font.render("Z", True, (50, 100, 255)), (o_x + iso_z[0]*axis_len - 10, o_y + iso_z[1]*axis_len - 20))
+
             if self.status_timer > 0: self.status_timer -= 1
             self.ui.draw_menu_bar(); self.ui.draw_dropdowns(); self.ui.draw_sidebar(); self.ui.draw_modal(); self.ui.draw_status_message(); pygame.display.flip(); self.clock.tick(60)
 
