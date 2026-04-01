@@ -7,6 +7,17 @@ class UIRenderer:
         self.editor = editor
         self.font = editor.font
         self.bold_font = editor.bold_font
+        self.icons = {}
+        self.load_ui_icons()
+
+    def load_ui_icons(self):
+        try:
+            icon_path = os.path.join(BASE_DIR, "assets", "ui", "icons")
+            warning_img = pygame.image.load(os.path.join(icon_path, "warning_icon.png")).convert_alpha()
+            self.icons['warning'] = pygame.transform.scale(warning_img, (40, 40))
+            self.icons['status_err'] = pygame.transform.scale(warning_img, (24, 24))
+        except Exception as e:
+            print(f"Error loading UI icons: {e}")
 
     def draw_menu_bar(self):
         pygame.draw.rect(self.editor.screen, (40, 40, 45), (0, 0, self.editor.w, self.editor.top_bar_height))
@@ -88,9 +99,14 @@ class UIRenderer:
         pygame.draw.rect(self.editor.screen, (45, 45, 50), self.editor.modal_rect)
         pygame.draw.rect(self.editor.screen, (100, 200, 255), self.editor.modal_rect, 2)
         
+        # Draw Warning Icon
+        if 'warning' in self.icons:
+            icon_rect = self.icons['warning'].get_rect(centerx=self.editor.modal_rect.centerx, y=self.editor.modal_rect.y + 20)
+            self.editor.screen.blit(self.icons['warning'], icon_rect)
+
         msg = f"ARE YOU SURE YOU WANT TO {self.editor.confirm_target.upper()}?"
         txt = self.bold_font.render(msg, True, (255, 255, 255))
-        self.editor.screen.blit(txt, (self.editor.modal_rect.centerx - txt.get_width()//2, self.editor.modal_rect.y + 40))
+        self.editor.screen.blit(txt, (self.editor.modal_rect.centerx - txt.get_width()//2, self.editor.modal_rect.y + 70))
         
         for b in self.editor.modal_buttons:
             pygame.draw.rect(self.editor.screen, (60, 60, 70), b["rect"])
@@ -127,10 +143,17 @@ class UIRenderer:
         # Draw a semi-transparent bar at the bottom
         bar_h = 40
         s = pygame.Surface((self.editor.w, bar_h), pygame.SRCALPHA)
-        color = (200, 50, 50, 200) if "ERROR" in self.editor.status_message else (50, 180, 80, 200)
+        is_error = "ERROR" in self.editor.status_message
+        color = (200, 50, 50, 200) if is_error else (50, 180, 80, 200)
         s.fill(color)
         self.editor.screen.blit(s, (0, self.editor.h - bar_h))
         
-        # Draw text
+        # Draw text + Icon
         txt = self.bold_font.render(self.editor.status_message.upper(), True, (255, 255, 255))
-        self.editor.screen.blit(txt, (self.editor.w//2 - txt.get_width()//2, self.editor.h - bar_h + (bar_h - txt.get_height())//2))
+        text_x = self.editor.w//2 - txt.get_width()//2
+        text_y = self.editor.h - bar_h + (bar_h - txt.get_height())//2
+        
+        if is_error and 'status_err' in self.icons:
+            self.editor.screen.blit(self.icons['status_err'], (text_x - 30, text_y + (txt.get_height() - 24)//2))
+            
+        self.editor.screen.blit(txt, (text_x, text_y))
