@@ -1,72 +1,79 @@
-# Stillness Editor - Technical Requirements Roadmap
+# Stillness Editor - Technical Requirements & Roadmap
 
-This document outlines the evolutionary path of the **Stillness Editor** from a functional tool to a professional-grade isometric production suite. Requirements are ordered by **Increasing Implementation Complexity**.
+This document serves as the professional blueprint for the **Stillness Editor**. It provides full traceability between features, implementation status, and verification tests.
 
----
+## 📊 Requirements Status Matrix
 
-## 🟢 Level 1: Workflow Efficiency (Low Complexity)
-*Focus: Improving the daily speed of the map designer.*
-
-1.  **Undo / Redo System**: Implementation of a command history stack (Standard 50-step limit).
-2.  **Fill / Bucket Tool**: Flooding an area with a selected base tile (4-way adjacency check).
-3.  **Asset Search & Tagging**: Search bar in the palette to filter assets by name (e.g., "stone", "tree").
-4.  **Layer Visibility Modes**: Individual toggles to hide/show specific layers (Base, Objects, VFX, Collision).
-5.  **Multi-Brush Sizes**: Support for 3x3 and 5x5 square brushes for faster terrain painting.
-
----
-
-## 🟡 Level 2: Organic Detailing (Medium Complexity)
-*Focus: Breaking the "grid" feel and adding life to the world.*
-
-6.  **Prop Offsetting**: Fine-tuning the (x, y) coordinates of an object within its tile (Shift-click to nudge).
-7.  **Random Scatter Brush**: Placing items from a set (e.g., "Rocks") with randomized rotation and minor offsets to create natural looks.
-8.  **Internal File Explorer**: A dedicated UI panel to switch between map files without OS dialogs.
-9.  **Entity Metadata**: A UI form to attach custom JSON properties to placed objects (e.g., `locked: true`, `trigger_id: 101`).
-
----
-
-## 🟠 Level 3: Spatial Logic & Systems (High Complexity)
-*Focus: Deep architectural changes and game logic integration.*
-
-10. **90-Degree Camera Rotation**: Rotating the entire world view while maintaining consistent depth sorting (Z-order recalculation).
-11. **Dynamic Map Resizing**: Expanding or cropping the map grid in any direction without losing existing data.
-12. **Trigger Zones & Nodes**: Vector-based or grid-based "Logic Areas" for scripts (Combat zones, cinematic triggers).
-13. **Prefab System**: Selecting a cluster of tiles/objects and saving them as a single "stamp" for reuse.
+| ID | Category | Requirement | Status | Verification / Test |
+| :--- | :--- | :--- | :--- | :--- |
+| **REQ-CORE-01** | Core | Isometric Grid Rendering & Coordinate System | **DONE** | `test_coordinate_projection` |
+| **REQ-CORE-02** | Core | Basic Asset Loading (Tiles/Objects/VFX) | **DONE** | `test_asset_footprint_logic` |
+| **REQ-CORE-03** | Core | Map Persistence (JSON Save/Load) | **DONE** | `test_save_map_logic` |
+| **REQ-CORE-04** | Core | Version-Locked File Handling | **DONE** | `test_map_version_lock` |
+| **REQ-CORE-05** | Core | Robust Loading (Corrupted JSON Handling) | **DONE** | `test_map_corruption_handling` |
+| **REQ-UI-01** | UI | High-Res Sidebar & Menu Bar Layout | **DONE** | `test_ui_distribution` |
+| **REQ-UI-02** | UI | Professional Modals (Confirmations) | **DONE** | Manual (Visual Modals) |
+| **REQ-CONF-01** | Config | Multi-Path Resource Configuration Dialog | **DONE** | Manual (Tkinter Dialog) |
+| **REQ-CONF-02** | Config | UI Iconography (Folders, Warnings, Save) | **DONE** | Manual (Assets/UI/Icons) |
+| **REQ-EFF-01** | Efficiency | Undo / Redo System (50-step stack) | PENDING | `test_undo_redo` |
+| **REQ-EFF-02** | Efficiency | Fill / Bucket Tool (Adjacency check) | PENDING | `test_bucket_fill` |
+| **REQ-EFF-03** | Efficiency | Asset Search & Tagging | PENDING | `test_palette_filter` |
+| **REQ-ANIM-01** | Animation | Frame Sequence Detection (Auto-folder load) | PENDING | `test_anim_detection` |
+| **REQ-ANIM-02** | Animation | Real-time Animation Preview (Sidebar Tool) | PENDING | Manual (UI Preview) |
+| **REQ-ANIM-03** | Animation | Dynamic Stage Placement (Characters/VFX) | PENDING | `test_map_anim_data` |
+| **REQ-SYS-01** | System | 90-Degree Map Camera Rotation | PENDING | `test_world_rotation` |
+| **REQ-SYS-02** | System | Dynamic Map Resizing | PENDING | `test_grid_resize` |
+| **REQ-ADV-01** | Engine | Auto-Tiling Rules (Bitmasking) | PENDING | `test_autotile_logic` |
+| **REQ-PIPE-01** | Pipeline | Git Diff Visualizer (Map Versioning) | PENDING | Manual (Visual Diff) |
 
 ---
 
-## 🔴 Level 4: Engine Integration (Advanced Complexity)
-*Focus: Real-time visual parity with the game engine.*
+## 🟢 Level 1: Core & Configuration (Completed)
+*Focus: Establishing the technical foundation and basic editor workflow.*
 
-14. **Auto-Tiling Logic**: Intelligent terrain placement based on neighbor rules (Corner/Edge detection).
-15. **Lighting Strategy Preview**: Placing light sources and visualizing shadow/light falloff using additive masks.
-16. **Animated Tile Support**: Real-time preview of multi-frame animations (Water, flickering neon, smoke).
-17. **Particle Emitters**: Visualizing particle flow (Dust, fire) directly in the editor using the game's actual particle logic.
-
----
-
-## 💎 Level 5: Professional Pipeline (Elite Complexity)
-*Focus: Large-scale production and external tool parity.*
-
-18. **Version Control Integration**: Visual "Diff" showing changes between the current map and the last Git commit.
-19. **Collaborative Editing Mode**: (Future) Multiple designers working on the same large map (Shared memory/Network).
-20. **Custom Plugin API**: Python-based hooks to allow external scripts to generate procedural terrain or cleanup maps.
-21. **Asset Variation (Alt-Tiles)**: Automatically cycle through variations of a single asset (e.g., "Grass_01...04") during painting to avoid repetition.
-22. **Live Asset Hot-Reloading**: Real-time update of textures/sprites in the editor when the source files are edited in external software (Photoshop/Aseprite).
+- **REQ-CORE-01**: Stable isometric projection (X+Y-Z) and grid management.
+- **REQ-CORE-03**: Full map saving/loading with directory selection.
+- **REQ-CONF-01**: Multi-path dialog (Config) to separate Tiles, Rocks, Structures and VFX.
+- **REQ-CONF-02**: Premium visual feedback with icons for critical actions.
 
 ---
 
-## 🛰️ Level 6: Analytics & AI (Future-Proofing)
-*Focus: Optimization, testing, and AI-assisted design.*
+## 🟡 Level 2: High-Efficiency Workflow (Priority: HIGH)
+*Focus: Speeding up map creation for high-scale production.*
 
-23. **Project Statistics & Memory Budget**: Counting unique textures and predicting VRAM usage for the target platform (Console/Mobile).
-24. **Navigation Mesh (Path-finding) Visualizer**: Real-time heat-map showing where entities can walk based on collision and height.
-25. **Layer Groups / Folders**: Organizing complex maps with 10+ layers (e.g., "Forest_L01", "Interior_Ground").
-26. **Batch Processing Tools**: Global operations like "Replace all Stone_01 with Mossy_Stone_01" or "Translate all objects by 2 units".
-27. **Tile Animation Curves**: Fine-tuning the speed and ease of animated tiles (Water waves, flickering embers).
-28. **Z-Order Debugger**: A specialized tool to inspect the exact sorting order of overlapping high-res sprites.
-29. **Heightmap & Multi-Floor logic**: Defining absolute Z-heights (Floor 1, Floor 2) for complex vertical architecture.
-30. **External Scripting Console**: A built-in terminal to run Python commands directly against the current grid state.
+1. **[REQ-EFF-01] Undo / Redo**: Command pattern implementation for non-destructive editing.
+2. **[REQ-EFF-02] Bucket Fill**: Optimize large terrain areas with one click.
+3. **[REQ-EFF-03] Selective Search**: Finding assets by keyword in the sidebar.
+4. **[REQ-ANIM-01] Frame Detection**: Automatic recognition of `frame_XXX.png` sequences for batch loading.
 
 ---
-*Last Updated: April 2026*
+
+## 🟠 Level 3: Dynamic Elements & Playback (Priority: MEDIUM)
+*Focus: Adding life to the static isometric scenario.*
+
+5. **[REQ-ANIM-02] Animation Preview Tool**: A specialized panel to pre-calculate and view frame playback before painting.
+6. **[REQ-ANIM-03] Character & Effect Placement**: Support for animated objects on the grid (Looping vs. Triggered).
+7. **[REQ-SYS-02] Grid Expansion**: Resizing maps to accommodate story growth.
+8. **[REQ-CORE-06] Layer Grouping**: Folders for complex maps (e.g., "Forest Floor", "Canopy").
+
+---
+
+## 🔴 Level 4: Advanced Engine Integration (Priority: LOW)
+*Focus: Real-time visual parity and complex spatial logic.*
+
+9. **[REQ-SYS-01] Camera Rotation**: Full 90º world rotation (includes depth sorting update).
+10. **[REQ-ADV-01] Auto-Tiling**: Implementing neighbor-aware terrain transitions.
+11. **[REQ-ANIM-04] Particle Preview**: Real-time integration of game engine particle emitters (Smoke, Fire, Dust).
+12. **[REQ-SYS-03] Trigger Logic Nodes**: Defining events and areas for gameplay scripting.
+
+---
+
+## 💎 Level 5: Professional Pipeline (Priority: FUTURE)
+*Focus: Team collaboration and large-scale project management.*
+
+13. **[REQ-PIPE-01] Version Control UI**: Visual diff between map versions based on Git commits.
+14. **[REQ-PIPE-02] Plugin API**: Allowing external Python scripts to extend the editor tools.
+15. **[REQ-PIPE-03] Asset Hot-Reloading**: Instant update when an external .png is saved.
+
+---
+*Last Updated: April 2026 - Santiago Marquez Solis*
