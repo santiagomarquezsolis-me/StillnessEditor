@@ -55,7 +55,7 @@ class UIRenderer:
         
         y = self.editor.top_bar_height + 15
         info = [
-            (f"LAYER: {self.editor.current_layer.upper()}", (100, 200, 255)),
+            (f"LAYER: {self.editor.current_layer.upper()}", ACCENT_COLOR),
             (f"SELECTED: {self.editor.selected_item}", TEXT_COLOR),
             (f"ZOOM: {self.editor.zoom_level:.1f}x", TEXT_COLOR),
             (f"ROTATION: {self.editor.brush_rot}º", TEXT_COLOR),
@@ -66,18 +66,41 @@ class UIRenderer:
             self.editor.screen.blit(txt, (panel_x + 15, y))
             y += 25
 
+        # Search Bar (REQ-EFF-03)
+        y += 10
+        search_rect = pygame.Rect(panel_x + 15, y, self.editor.ui_panel_width - 30, 30)
+        pygame.draw.rect(self.editor.screen, (25, 25, 30), search_rect)
+        pygame.draw.rect(self.editor.screen, ACCENT_COLOR if self.editor.search_query else (60, 60, 70), search_rect, 1)
+        
+        search_text = f"Search: {self.editor.search_query}" if self.editor.search_query else "Search (Type...)"
+        search_color = TEXT_COLOR if self.editor.search_query else (100, 100, 100)
+        stxt = self.font.render(search_text, True, search_color)
+        self.editor.screen.blit(stxt, (search_rect.x + 10, search_rect.y + (30 - stxt.get_height()) // 2))
+        y += 40
+
         # Palette
+        ticks = pygame.time.get_ticks()
         for b in self.editor.palette_buttons:
             pygame.draw.rect(self.editor.screen, (50, 50, 60), b["rect"])
-            if b.get("img"):
-                thumb = pygame.transform.scale(b["img"], (b["rect"].width-10, b["rect"].height-10))
+            
+            img = b.get("img")
+            # If it's an animation, cycle frames in palette
+            if b.get("anim") and b["name"] in self.editor.am.animations:
+                frames = self.editor.am.animations[b["name"]]
+                img = frames[(ticks // (1000 // ANIM_FPS)) % len(frames)]
+
+            if img:
+                thumb = pygame.transform.scale(img, (b["rect"].width-10, b["rect"].height-10))
                 self.editor.screen.blit(thumb, (b["rect"].x+5, b["rect"].y+5))
             else:
                 txt = self.font.render(b["name"].upper(), True, (150, 150, 150))
                 self.editor.screen.blit(txt, (b["rect"].centerx - txt.get_width()//2, b["rect"].centery - txt.get_height()//2))
             
             if b.get("name") == self.editor.selected_item or b.get("name") == self.editor.current_cat:
-                pygame.draw.rect(self.editor.screen, (100, 200, 255), b["rect"], 2)
+                pygame.draw.rect(self.editor.screen, ACCENT_COLOR, b["rect"], 2)
+            
+            if b.get("anim"):
+                pygame.draw.circle(self.editor.screen, (255, 100, 100), (b["rect"].right - 10, b["rect"].top + 10), 4)
         
         # Tools
         for b in self.editor.buttons:
@@ -97,7 +120,7 @@ class UIRenderer:
         self.editor.screen.blit(s, (0, 0))
         
         pygame.draw.rect(self.editor.screen, (45, 45, 50), self.editor.modal_rect)
-        pygame.draw.rect(self.editor.screen, (100, 200, 255), self.editor.modal_rect, 2)
+        pygame.draw.rect(self.editor.screen, ACCENT_COLOR, self.editor.modal_rect, 2)
         
         # Draw Warning Icon
         if 'warning' in self.icons:
