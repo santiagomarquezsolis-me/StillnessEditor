@@ -32,7 +32,8 @@ class AssetManager:
             
             full_path = path if os.path.isabs(path) else os.path.join(BASE_DIR, path)
             if os.path.exists(full_path):
-                cat_name = key
+                # Use 'main' for LAYER_BASE to match UI expectations
+                cat_name = "main" if layer == LAYER_BASE else key
                 if cat_name not in self.assets[layer]: self.assets[layer][cat_name] = {}
                 
                 for root, dirs, files in os.walk(full_path):
