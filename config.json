@@ -1,0 +1,10 @@
+{
+    "asset_paths": {
+        "tiles": "assets/tiles",
+        "rocks": "assets/sprites/zone_01_crash_site/misc",
+        "structures": "assets/sprites/zone_01_crash_site/structure",
+        "vfx": "assets/sprites/zone_01_crash_site/vfx",
+        "sprites": "assets/sprites"
+    },
+    "version": "v1.2 (Modular)"
+}
