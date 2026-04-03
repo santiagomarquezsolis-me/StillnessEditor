@@ -70,37 +70,67 @@ class UIRenderer:
         y += 10
         search_rect = pygame.Rect(panel_x + 15, y, self.editor.ui_panel_width - 30, 30)
         pygame.draw.rect(self.editor.screen, (25, 25, 30), search_rect)
-        pygame.draw.rect(self.editor.screen, ACCENT_COLOR if self.editor.search_query else (60, 60, 70), search_rect, 1)
+        
+        # Highlight border if active
+        border_color = (150, 200, 255) if self.editor.search_active else (60, 60, 70)
+        if self.editor.search_query: border_color = ACCENT_COLOR
+        pygame.draw.rect(self.editor.screen, border_color, search_rect, 1 if not self.editor.search_active else 2)
         
         search_text = f"Search: {self.editor.search_query}" if self.editor.search_query else "Search (Type...)"
-        search_color = TEXT_COLOR if self.editor.search_query else (100, 100, 100)
+        search_color = TEXT_COLOR if self.editor.search_query or self.editor.search_active else (100, 100, 100)
         stxt = self.font.render(search_text, True, search_color)
         self.editor.screen.blit(stxt, (search_rect.x + 10, search_rect.y + (30 - stxt.get_height()) // 2))
+        
+        # Blinking Cursor
+        if self.editor.search_active and (pygame.time.get_ticks() // 500) % 2:
+            cursor_x = search_rect.x + 10 + stxt.get_width() + 2
+            pygame.draw.line(self.editor.screen, (255, 255, 255), (cursor_x, search_rect.y + 5), (cursor_x, search_rect.y + 25), 1)
+        
         y += 40
 
-        # Palette
+        # Palette Clipping & Rendering
+        palette_y_start = self.editor.top_bar_height + 360
+        palette_rect = pygame.Rect(panel_x, palette_y_start, self.editor.ui_panel_width, self.editor.h - palette_y_start)
+        
+        # Set clip to prevent bleeding into other UI elements
+        old_clip = self.editor.screen.get_clip()
+        self.editor.screen.set_clip(palette_rect)
+        
         ticks = pygame.time.get_ticks()
         for b in self.editor.palette_buttons:
-            pygame.draw.rect(self.editor.screen, (50, 50, 60), b["rect"])
+            # Shift rect by scroll amount
+            draw_rect = b["rect"].move(0, -self.editor.palette_scroll_y)
+            if not palette_rect.colliderect(draw_rect): continue # Skip if off-screen
+            
+            pygame.draw.rect(self.editor.screen, (50, 50, 60), draw_rect)
             
             img = b.get("img")
-            # If it's an animation, cycle frames in palette
             if b.get("anim") and b["name"] in self.editor.am.animations:
                 frames = self.editor.am.animations[b["name"]]
                 img = frames[(ticks // (1000 // ANIM_FPS)) % len(frames)]
 
             if img:
-                thumb = pygame.transform.scale(img, (b["rect"].width-10, b["rect"].height-10))
-                self.editor.screen.blit(thumb, (b["rect"].x+5, b["rect"].y+5))
+                thumb = pygame.transform.scale(img, (draw_rect.width-10, draw_rect.height-10))
+                self.editor.screen.blit(thumb, (draw_rect.x+5, draw_rect.y+5))
             else:
                 txt = self.font.render(b["name"].upper(), True, (150, 150, 150))
-                self.editor.screen.blit(txt, (b["rect"].centerx - txt.get_width()//2, b["rect"].centery - txt.get_height()//2))
+                self.editor.screen.blit(txt, (draw_rect.centerx - txt.get_width()//2, draw_rect.centery - txt.get_height()//2))
             
             if b.get("name") == self.editor.selected_item or b.get("name") == self.editor.current_cat:
-                pygame.draw.rect(self.editor.screen, ACCENT_COLOR, b["rect"], 2)
+                pygame.draw.rect(self.editor.screen, ACCENT_COLOR, draw_rect, 2)
             
             if b.get("anim"):
-                pygame.draw.circle(self.editor.screen, (255, 100, 100), (b["rect"].right - 10, b["rect"].top + 10), 4)
+                pygame.draw.circle(self.editor.screen, (255, 100, 100), (draw_rect.right - 10, draw_rect.top + 10), 4)
+
+        # Restore clip
+        self.editor.screen.set_clip(old_clip)
+
+        # Draw Scrollbar Indicator
+        if self.editor.max_palette_scroll > 0:
+            sb_h = max(20, (palette_rect.height / (palette_rect.height + self.editor.max_palette_scroll)) * palette_rect.height)
+            sb_y = palette_y_start + (self.editor.palette_scroll_y / self.editor.max_palette_scroll) * (palette_rect.height - sb_h)
+            sb_rect = pygame.Rect(self.editor.w - 6, sb_y, 4, sb_h)
+            pygame.draw.rect(self.editor.screen, (100, 100, 110), sb_rect, border_radius=2)
         
         # Tools
         for b in self.editor.buttons:

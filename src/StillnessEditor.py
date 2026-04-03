@@ -44,6 +44,9 @@ class StillnessEditor:
         self.ui_panel_width = 250
         self.status_message = None
         self.status_timer = 0
+        self.search_active = False # REQ-EFF-03 (Focus)
+        self.palette_scroll_y = 0
+        self.max_palette_scroll = 0
         
         # History (REQ-EFF-01)
         self.undo_stack = deque(maxlen=UNDO_LIMIT)
@@ -140,12 +143,22 @@ class StillnessEditor:
                 rect = pygame.Rect(x_start + (i%2)*(thumb_w+10), y_start + (i//2)*(thumb_h+10), thumb_w, thumb_h)
                 if name == ".. BACK": self.palette_buttons.append({"rect": rect, "name": name, "type": "back"})
                 else: self.palette_buttons.append({"rect": rect, "name": name, "type": "item", "img": img})
+        
+        # Calculate Max Scroll
+        visible_h = self.h - (y_start + 10)
+        total_h = ((len(self.palette_buttons) + 1) // 2) * (thumb_h + 10)
+        self.max_palette_scroll = max(0, total_h - visible_h + 20)
 
     def handle_events(self):
         for event in pygame.event.get():
             if event.type == pygame.QUIT: self.running = False
             if event.type == pygame.VIDEORESIZE: self.w, self.h = event.w, event.h; self.update_ui_layout(); self.refresh_palette()
-            if event.type == pygame.MOUSEWHEEL: self.zoom_level = max(0.2, min(4.0, self.zoom_level + event.y * 0.1))
+            if event.type == pygame.MOUSEWHEEL:
+                mx, my = pygame.mouse.get_pos()
+                if mx > self.w - self.ui_panel_width: # Over sidebar
+                    self.palette_scroll_y = max(0, min(self.max_palette_scroll, self.palette_scroll_y - event.y * 30))
+                else: # Over grid
+                    self.zoom_level = max(0.2, min(4.0, self.zoom_level + event.y * 0.1))
             
             # Keyboard handling (Search & Shortcuts)
             if event.type == pygame.KEYDOWN:
@@ -154,20 +167,33 @@ class StillnessEditor:
                     if event.key == pygame.K_y: self.redo()
                     if event.key == pygame.K_s: self.save_map()
                 else:
-                    if event.key == pygame.K_BACKSPACE: self.search_query = self.search_query[:-1]; self.refresh_palette()
+                    if event.key == pygame.K_BACKSPACE and self.search_active: self.search_query = self.search_query[:-1]; self.refresh_palette()
                     elif event.key == pygame.K_ESCAPE:
-                        if self.search_query: self.search_query = ""; self.refresh_palette()
+                        if self.search_active: self.search_active = False # Deactivate on ESC
+                        elif self.search_query: self.search_query = ""; self.refresh_palette()
                         else: self.show_confirmation("exit")
-                    elif event.unicode.isprintable(): 
+                    
+                    # Search input (if focused and no system key)
+                    elif self.search_active and event.unicode.isprintable():
                         self.search_query += event.unicode
                         self.refresh_palette()
+                        return # Stop here if searching
                     
-                    # Layer shortcuts
-                    if event.key == pygame.K_1: self.handle_menu_action(LAYER_BASE)
-                    if event.key == pygame.K_2: self.handle_menu_action(LAYER_OBJECTS)
-                    if event.key == pygame.K_3: self.handle_menu_action(LAYER_VFX)
-                    if event.key == pygame.K_4: self.handle_menu_action(LAYER_COLLISION)
-                    if event.key == pygame.K_5: self.handle_menu_action(LAYER_ANIM)
+                    # Global Shortcuts (Priority over Search if no focus)
+                    elif not self.search_active:
+                        if event.key == pygame.K_h: self.handle_menu_action("grid")
+                        elif event.key == pygame.K_r: self.handle_menu_action("rotate")
+                        elif event.key == pygame.K_x: self.handle_menu_action("clear")
+                        elif event.key == pygame.K_g: self.handle_menu_action("shadow")
+                        elif event.key == pygame.K_f: self.handle_menu_action("flip_h")
+                        elif event.key == pygame.K_v: self.handle_menu_action("flip_v")
+                        
+                        # Layer shortcuts
+                        elif event.key == pygame.K_1: self.handle_menu_action(LAYER_BASE)
+                        elif event.key == pygame.K_2: self.handle_menu_action(LAYER_OBJECTS)
+                        elif event.key == pygame.K_3: self.handle_menu_action(LAYER_VFX)
+                        elif event.key == pygame.K_4: self.handle_menu_action(LAYER_COLLISION)
+                        elif event.key == pygame.K_5: self.handle_menu_action(LAYER_ANIM)
 
             if event.type == pygame.MOUSEBUTTONDOWN:
                 mx, my = pygame.mouse.get_pos()
@@ -189,6 +215,15 @@ class StillnessEditor:
                                 if self.confirm_target == "reset": self.save_snapshot(); self.grid = [[{k: (None if "id" in k else False) for k in self.grid[0][0].keys()} for _ in range(GRID_SIZE)] for _ in range(GRID_SIZE)]
                                 elif self.confirm_target == "exit": self.running = False
                             self.confirm_target = None; return
+                
+                # Check for Search Bar Focus (Panel area)
+                panel_x = self.w - self.ui_panel_width
+                search_y = self.top_bar_height + 150 # top_bar_height + 15 + (25*5) + 10
+                search_rect = pygame.Rect(panel_x + 15, search_y, self.ui_panel_width - 30, 30)
+                if search_rect.collidepoint(mx, my):
+                    self.search_active = True
+                elif mx < panel_x or my < self.top_bar_height:
+                    self.search_active = False # Deactivate if clicking grid/menu
 
                 for b in self.buttons:
                     if b["rect"].collidepoint(mx, my):
@@ -197,9 +232,12 @@ class StillnessEditor:
                         return
 
                 for b in self.palette_buttons:
-                    if b["rect"].collidepoint(mx, my):
-                        if b["type"] == "category": self.current_cat = b["name"]; self.refresh_palette()
-                        elif b["type"] == "back": self.current_cat = None; self.refresh_palette()
+                    # Adjust collision check with scroll offset
+                    if b["rect"].move(0, -self.palette_scroll_y).collidepoint(mx, my):
+                        # Ensure we don't click items that are obscured by the top part of the sidebar
+                        if my < self.top_bar_height + 360: continue 
+                        if b["type"] == "category": self.current_cat = b["name"]; self.refresh_palette(); self.palette_scroll_y = 0
+                        elif b["type"] == "back": self.current_cat = None; self.refresh_palette(); self.palette_scroll_y = 0
                         else: self.selected_item = b["name"]
                         return
 
@@ -232,10 +270,10 @@ class StillnessEditor:
             self.handle_events()
             keys = pygame.key.get_pressed()
             move_speed = 10 if keys[pygame.K_LSHIFT] else 5
-            if keys[pygame.K_w]: self.camera_offset.y += move_speed
-            if keys[pygame.K_s]: self.camera_offset.y -= move_speed
-            if keys[pygame.K_a]: self.camera_offset.x += move_speed
-            if keys[pygame.K_d]: self.camera_offset.x -= move_speed
+            if keys[pygame.K_w] or keys[pygame.K_UP]: self.camera_offset.y += move_speed
+            if keys[pygame.K_s] or keys[pygame.K_DOWN]: self.camera_offset.y -= move_speed
+            if keys[pygame.K_a] or keys[pygame.K_LEFT]: self.camera_offset.x += move_speed
+            if keys[pygame.K_d] or keys[pygame.K_RIGHT]: self.camera_offset.x -= move_speed
             
             self.screen.fill(BG_COLOR)
             zw, zh = TILE_W * self.zoom_level, TILE_H * self.zoom_level
