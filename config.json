@@ -4,7 +4,8 @@
         "rocks": "assets/sprites/zone_01_crash_site/misc",
         "structures": "assets/sprites/zone_01_crash_site/structure",
         "vfx": "assets/sprites/zone_01_crash_site/vfx",
+        "trees": "assets/sprites/zone_01_crash_site/tree",
         "sprites": "assets/sprites"
     },
-    "version": "v1.5 (Level 2)"
+    "version": "v1.6 (Level 3)"
 }

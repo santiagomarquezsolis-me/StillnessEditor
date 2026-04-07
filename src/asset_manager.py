@@ -9,7 +9,9 @@ class AssetManager:
         self.asset_scales = {
             "fuselage": 3.0, "wing": 1.2, "jungle_tree": 1.8, 
             "monolith": 2.2, "chaac": 1.5, "column": 1.4,
-            "smoke": 1.5, "fire": 1.2
+            "smoke": 1.5, "fire": 1.2,
+            "yucatan_grass_short": 0.6, "yucatan_grass_medium": 1.1,
+            "yucatan_grass_tall": 1.8, "yucatan_grass_very_tall": 2.8
         }
 
     def load_assets(self, config):
@@ -22,6 +24,7 @@ class AssetManager:
         categories = {
             "tiles": LAYER_BASE,
             "rocks": LAYER_OBJECTS,
+            "trees": LAYER_OBJECTS,
             "structures": LAYER_OBJECTS,
             "vfx": LAYER_VFX
         }
@@ -115,4 +118,8 @@ class AssetManager:
             if ratio > 1.2: fh = max(fw, round(sh / TILE_H))
             
         if brush_rot in [90, 270] and not is_struct: return (fh, fw)
+        
+        # Override for grass to be 1x1
+        if "grass" in item_id.lower(): return (1, 1)
+            
         return (fw, fh)

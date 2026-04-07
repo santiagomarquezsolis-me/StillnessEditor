@@ -7,7 +7,7 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.pa
 WIDTH, HEIGHT = 1280, 720
 TILE_W, TILE_H = 128, 64
 GRID_SIZE = 15
-VERSION = "v1.5 (Level 2)"
+VERSION = "v1.6 (Level 3)"
 
 # Limits & Timings
 UNDO_LIMIT = 50

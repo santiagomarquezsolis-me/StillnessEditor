@@ -19,6 +19,7 @@ class ConfigManager:
                 "rocks": "assets/sprites/zone_01_crash_site/misc",
                 "structures": "assets/sprites/zone_01_crash_site/structure",
                 "vfx": "assets/sprites/zone_01_crash_site/vfx",
+                "trees": "assets/sprites/zone_01_crash_site/tree",
                 "sprites": "assets/sprites"
             }
         }
@@ -84,6 +85,7 @@ class ConfigManager:
         paths_to_edit = {
             "tiles": "TILES (Base Layer)",
             "rocks": "ROCKS (Objects Layer)",
+            "trees": "TREES (Vegetation Layer)",
             "structures": "STRUCTURES (Objects Layer)",
             "vfx": "VFX (Visual Effects Layer)"
         }

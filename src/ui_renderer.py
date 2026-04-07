@@ -1,6 +1,7 @@
 import pygame
 import sys
 from .constants import *
+from .utils import world_to_screen, screen_to_world
 
 class UIRenderer:
     def __init__(self, editor):
@@ -18,6 +19,86 @@ class UIRenderer:
             self.icons['status_err'] = pygame.transform.scale(warning_img, (24, 24))
         except Exception as e:
             print(f"Error loading UI icons: {e}")
+
+    def draw_brush_preview(self, mx, my):
+        """Draws a semi-transparent blue footprint of the selected item at (mx, my)."""
+        if not self.editor.selected_item or mx > self.editor.w - self.editor.ui_panel_width: return
+        
+        gx, gy = screen_to_world(mx, my, self.editor.zoom_level, self.editor.camera_offset)
+        fw, fh = self.editor.am.get_asset_footprint(self.editor.selected_item, self.editor.brush_rot)
+        
+        # Center the footprint on the mouse cell
+        sx, sy = gx - fw // 2, gy - fh // 2
+        
+        zw, zh = TILE_W * self.editor.zoom_level, TILE_H * self.editor.zoom_level
+        
+        # 1. Draw the "Blue Mesh" (Footprint Area)
+        preview_surf = pygame.Surface((self.editor.w, self.editor.h), pygame.SRCALPHA)
+        for ix in range(fw):
+            for iy in range(fh):
+                tx, ty = sx + ix, sy + iy
+                if 0 <= tx < GRID_SIZE and 0 <= ty < GRID_SIZE:
+                    psx, psy = world_to_screen(tx, ty, self.editor.zoom_level, self.editor.camera_offset)
+                    # Draw a semi-transparent blue diamond
+                    pts = [(psx, psy), (psx + zw//2, psy + zh//2), (psx, psy + zh), (psx - zw//2, psy + zh//2)]
+                    pygame.draw.polygon(preview_surf, (100, 200, 255, 100), pts)
+                    pygame.draw.polygon(preview_surf, (150, 220, 255, 180), pts, 2)
+        
+        self.editor.screen.blit(preview_surf, (0, 0))
+        
+        # 2. Draw Ghost Asset (Semi-transparent)
+        img = None
+        # Check animations
+        if self.editor.selected_item in self.editor.am.animations:
+            img = self.editor.am.animations[self.editor.selected_item][0]
+        else:
+            for layer in self.editor.am.assets:
+                for cat in self.editor.am.assets[layer].values():
+                    if self.editor.selected_item in cat: img = cat[self.editor.selected_item]; break
+                if img: break
+        
+        if img:
+            iw, ih = int(img.get_width() * self.editor.zoom_level), int(img.get_height() * self.editor.zoom_level)
+            # Handle Rotation for Ghost
+            ghost = pygame.transform.scale(img, (iw, ih))
+            if self.editor.current_layer == LAYER_BASE:
+                ghost = pygame.transform.scale(ghost, (int(zw), int(zh)))
+            
+            if self.editor.brush_rot != 0:
+                ghost = pygame.transform.rotate(ghost, -self.editor.brush_rot)
+            
+            ghost.set_alpha(150)
+            
+            # Position for ghost (centered on the footprint or current cell)
+            if self.editor.current_layer == LAYER_BASE:
+                gsx, gsy = world_to_screen(gx, gy, self.editor.zoom_level, self.editor.camera_offset)
+                self.editor.screen.blit(ghost, (gsx - zw//2, gsy))
+            else:
+                scx = (gx - gy) * (zw // 2) + self.editor.camera_offset.x
+                # Sync with StillnessEditor's bottom vertex anchor
+                anchor_y = (gx + (fw - fw//2) + gy + (fh - fh//2)) * (zh // 2) + self.editor.camera_offset.y
+                
+                # Render Brush Shadow Preview
+                if self.editor.current_layer == LAYER_OBJECTS and self.editor.brush_shadow:
+                    # Create shadow ghost
+                    shadow_ghost = pygame.transform.rotate(pygame.transform.scale(img, (iw, ih)), -self.editor.brush_rot)
+                    shadow_surf = pygame.Surface(shadow_ghost.get_size(), pygame.SRCALPHA)
+                    shadow_surf.blit(shadow_ghost, (0, 0))
+                    shadow_surf.fill((0, 0, 0, 80), special_flags=pygame.BLEND_RGBA_MULT)
+                    shadow_surf = pygame.transform.scale(shadow_surf, (shadow_surf.get_width(), int(shadow_surf.get_height() * 0.5)))
+                    self.editor.screen.blit(shadow_surf, (scx - shadow_surf.get_width()//2, anchor_y - shadow_surf.get_height()))
+
+                self.editor.screen.blit(ghost, (scx - ghost.get_width()//2, anchor_y - ghost.get_height()))
+
+        # 3. Paste Preview (REQ-EFF-04)
+        if self.editor.paste_mode and self.editor.clipboard:
+            cw, ch = len(self.editor.clipboard), len(self.editor.clipboard[0])
+            for i, row in enumerate(self.editor.clipboard):
+                for j, cell in enumerate(row):
+                    tx, ty = gx + i, gy + j
+                    if 0 <= tx < GRID_SIZE and 0 <= ty < GRID_SIZE:
+                        psx, psy = world_to_screen(tx, ty, self.editor.zoom_level, self.editor.camera_offset)
+                        pygame.draw.polygon(self.editor.screen, (100, 255, 100, 80), [(psx, psy), (psx+zw//2, psy+zh//2), (psx, psy+zh), (psx-zw//2, psy+zh//2)], 1)
 
     def draw_menu_bar(self):
         pygame.draw.rect(self.editor.screen, (40, 40, 45), (0, 0, self.editor.w, self.editor.top_bar_height))
@@ -49,6 +130,7 @@ class UIRenderer:
                 self.editor.screen.blit(txt, (m_rect.x + 10, iy + (25 - txt.get_height()) // 2))
 
     def draw_sidebar(self):
+        if self.editor.ui_panel_width <= 0: return
         panel_x = self.editor.w - self.editor.ui_panel_width
         pygame.draw.rect(self.editor.screen, (35, 35, 40), (panel_x, self.editor.top_bar_height, self.editor.ui_panel_width, self.editor.h - self.editor.top_bar_height))
         pygame.draw.line(self.editor.screen, (60, 60, 70), (panel_x, self.editor.top_bar_height), (panel_x, self.editor.h), 1)
@@ -59,7 +141,9 @@ class UIRenderer:
             (f"SELECTED: {self.editor.selected_item}", TEXT_COLOR),
             (f"ZOOM: {self.editor.zoom_level:.1f}x", TEXT_COLOR),
             (f"ROTATION: {self.editor.brush_rot}º", TEXT_COLOR),
-            (f"GRID: {'ON' if self.editor.show_grid else 'OFF'}", (150, 150, 150))
+            (f"GRID: {'ON' if self.editor.show_grid else 'OFF'}", (150, 150, 150)),
+            (f"FOG: {'ON' if self.editor.show_fog else 'OFF'}", self.editor.fog_presets[self.editor.fog_color_idx]),
+            (f"RAIN: {'ON' if self.editor.show_rain else 'OFF'}", (150, 160, 255) if self.editor.show_rain else (150, 150, 150))
         ]
         for text, color in info:
             txt = self.bold_font.render(text, True, color)
@@ -143,6 +227,24 @@ class UIRenderer:
                 txt = self.font.render(b["text"], True, TEXT_COLOR)
                 self.editor.screen.blit(txt, (b["rect"].centerx - txt.get_width()//2, b["rect"].centery - txt.get_height()//2))
 
+        # Metadata Section (REQ-DATA-01)
+        if self.editor.selection_start == self.editor.selection_end and self.editor.selection_start:
+            gx, gy = self.editor.selection_start
+            y = self.editor.top_bar_height + 270
+            self.editor.screen.blit(self.bold_font.render("METADATA:", True, ACCENT_COLOR), (panel_x + 15, y))
+            meta_rect = pygame.Rect(panel_x + 15, y + 25, self.editor.ui_panel_width - 30, 25)
+            pygame.draw.rect(self.editor.screen, (20, 20, 25), meta_rect)
+            
+            border_col = (200, 200, 255) if self.editor.metadata_focus else (60, 60, 70)
+            pygame.draw.rect(self.editor.screen, border_col, meta_rect, 1 if not self.editor.metadata_focus else 2)
+            
+            val = self.editor.grid[gx][gy].get("metadata", "")
+            mtxt = self.font.render(val if val else "None...", True, (255, 255, 255) if val else (100, 100, 100))
+            self.editor.screen.blit(mtxt, (meta_rect.x + 8, meta_rect.y + (25 - mtxt.get_height()) // 2))
+            
+            if self.editor.metadata_focus and (pygame.time.get_ticks() // 500) % 2:
+                pygame.draw.line(self.editor.screen, (255, 255, 255), (meta_rect.x + 8 + mtxt.get_width() + 2, meta_rect.y + 5), (meta_rect.x + 8 + mtxt.get_width() + 2, meta_rect.y + 20), 1)
+
     def draw_modal(self):
         if not self.editor.confirm_target: return
         s = pygame.Surface((self.editor.w, self.editor.h), pygame.SRCALPHA)
@@ -162,9 +264,65 @@ class UIRenderer:
         self.editor.screen.blit(txt, (self.editor.modal_rect.centerx - txt.get_width()//2, self.editor.modal_rect.y + 70))
         
         for b in self.editor.modal_buttons:
-            pygame.draw.rect(self.editor.screen, (60, 60, 70), b["rect"])
             txt = self.font.render(b["text"], True, (255, 255, 255))
             self.editor.screen.blit(txt, (b["rect"].centerx - txt.get_width()//2, b["rect"].centery - txt.get_height()//2))
+
+    def draw_weather_dialog(self):
+        if not self.editor.show_weather_config: return
+        s = pygame.Surface((self.editor.w, self.editor.h), pygame.SRCALPHA)
+        s.fill((0, 0, 0, 200)) # Darker overlay
+        self.editor.screen.blit(s, (0, 0))
+        
+        r = self.editor.weather_rect
+        pygame.draw.rect(self.editor.screen, (40, 40, 45), r)
+        pygame.draw.rect(self.editor.screen, ACCENT_COLOR, r, 2)
+        
+        title = self.bold_font.render("WEATHER CONFIGURATION", True, ACCENT_COLOR)
+        self.editor.screen.blit(title, (r.centerx - title.get_width()//2, r.y + 20))
+        
+        for b in self.editor.weather_buttons:
+            # Determine state
+            state_text = ""
+            state_color = TEXT_COLOR
+            val = b["value"]
+            if val == "fog": 
+                state_text = "[ ON ]" if self.editor.show_fog else "[ OFF ]"
+                state_color = self.editor.fog_presets[self.editor.fog_color_idx] if self.editor.show_fog else (100, 100, 100)
+            elif val == "fog_cycle": 
+                state_text = f"Preset {self.editor.fog_color_idx + 1}"
+            elif val == "rain": 
+                state_text = "[ ON ]" if self.editor.show_rain else "[ OFF ]"
+            elif val == "rain_density": 
+                state_text = str(self.editor.rain_density)
+            elif val == "rain_floor": 
+                state_text = "[ YES ]" if self.editor.rain_collision_floor else "[ NO ]"
+            elif val == "rain_obj": 
+                state_text = "[ YES ]" if self.editor.rain_collision_objects else "[ NO ]"
+            elif val == "rain_splash": 
+                state_text = "[ YES ]" if self.editor.rain_splashes else "[ NO ]"
+            elif val == "rain_angle":
+                # Special drawing for slider
+                bar_r = pygame.Rect(b["rect"].x + 130, b["rect"].y + 10, 60, 10)
+                pygame.draw.rect(self.editor.screen, (30, 30, 35), bar_r)
+                # Map angle (-10 to 10) to bar
+                handle_x = bar_r.x + (self.editor.rain_angle + 10) / 20 * bar_r.width
+                pygame.draw.circle(self.editor.screen, ACCENT_COLOR, (int(handle_x), bar_r.centery), 6)
+                state_text = f"{self.editor.rain_angle}"
+            
+            # Hover effect
+            is_hover = b["rect"].collidepoint(pygame.mouse.get_pos())
+            bg_color = (60, 60, 70) if not is_hover else (80, 80, 90)
+            if val == "close": bg_color = (120, 60, 60) if not is_hover else (150, 80, 80)
+            
+            pygame.draw.rect(self.editor.screen, bg_color, b["rect"])
+            
+            # Text
+            txt = self.font.render(b["text"], True, (255, 255, 255))
+            self.editor.screen.blit(txt, (b["rect"].x + 10, b["rect"].centery - txt.get_height()//2))
+            
+            if state_text:
+                stxt = self.bold_font.render(state_text, True, state_color)
+                self.editor.screen.blit(stxt, (b["rect"].right - stxt.get_width() - 10, b["rect"].centery - stxt.get_height()//2))
 
     def show_splash(self):
         splash_font = pygame.font.SysFont("Arial", 72, bold=True)

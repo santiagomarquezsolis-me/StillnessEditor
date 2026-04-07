@@ -14,16 +14,16 @@ This document serves as the high-fidelity technical blueprint for the **Stillnes
 | **REQ-CONF-01** | Professional Dark Mode UI & Menus | 1 | **DONE** | Manual Visualization |
 | **REQ-CONF-02** | Multi-Path Resource Configuration | 1 | **DONE** | `test_editor_config_loading` |
 | **REQ-CONF-03** | UI Iconography (Folders, Warnings, Disk) | 1 | **DONE** | Manual Asset Check |
-| **REQ-EFF-01** | Undo / Redo System (50-Step History) | 2 | PENDING | `test_undo_redo` |
-| **REQ-EFF-02** | Flood Fill / Bucket Tool | 2 | PENDING | `test_bucket_fill` |
-| **REQ-EFF-03** | Asset Search & Tagging System | 2 | PENDING | `test_palette_filter` |
-| **REQ-ANIM-01** | Automatic Frame Sequence Detection (Batch Load) | 2 | PENDING | `test_anim_detection` |
-| **REQ-EFF-04** | Region Copy / Paste Selection | 3 | PENDING | `test_copy_paste` |
-| **REQ-DETAIL-01** | Prop Offsetting (Micro-nudging) | 3 | PENDING | Manual (Shift+Move) |
-| **REQ-DETAIL-02** | Random Scatter Brush (Rocks/Trees) | 3 | PENDING | `test_scatter_brush` |
-| **REQ-DATA-01** | Custom Entity Metadata (JSON Props) | 3 | PENDING | `test_metadata_save` |
+| **REQ-EFF-01** | Undo / Redo System (50-Step History) | 2 | **DONE** | `test_undo_redo` |
+| **REQ-EFF-02** | Flood Fill / Bucket Tool | 2 | **DONE** | `test_bucket_fill` |
+| **REQ-EFF-03** | Asset Search & Tagging System | 2 | **DONE** | `test_palette_filter` |
+| **REQ-ANIM-01** | Automatic Frame Sequence Detection (Batch Load) | 2 | **DONE** | `test_anim_detection` |
+| **REQ-EFF-04** | Region Copy / Paste Selection | 3 | **DONE** | `test_selection_logic` |
+| **REQ-DETAIL-01** | Prop Offsetting (Micro-nudging) | 3 | **DONE** | `test_selection_logic` |
+| **REQ-DETAIL-02** | Random Scatter Brush (Rocks/Trees) | 3 | **DONE** | `test_productivity_tools` |
+| **REQ-DATA-01** | Custom Entity Metadata (JSON Props) | 3 | **DONE** | `test_selection_logic` |
 | **REQ-ANIM-02** | In-Editor Animation Preview Panel | 4 | PENDING | Manual UI Preview |
-| **REQ-ANIM-03** | Animated Character & VFX Placement | 4 | PENDING | `test_map_anim_data` |
+| **REQ-ANIM-03** | Animated Character & VFX Placement | 4 | **DONE** | `test_map_anim_data` |
 | **REQ-SYS-01** | Dynamic Grid Expansion & Map Resizing | 4 | PENDING | `test_grid_resize` |
 | **REQ-SYS-02** | 90-Degree Camera Rotation | 5 | PENDING | `test_world_rotation` |
 | **REQ-SYS-03** | Depth Sorting Refinement (Z-Order Debugger) | 5 | PENDING | `test_depth_sorting` |
@@ -45,13 +45,11 @@ This document serves as the high-fidelity technical blueprint for the **Stillnes
 
 ---
 
-## 🟡 Level 2: Productivity Boost (Priority: HIGH)
+## 🟡 Level 2: Productivity Boost (DONE)
 *Focus: Minimizing repetitive work for environmental designers.*
 
-1. **[REQ-EFF-01] Undo / Redo Stack**: Enabling experimentation without risk of permanent errors.
-2. **[REQ-EFF-02] Bucket Tool**: Smart filling of large areas (e.g., floors/water).
-3. **[REQ-EFF-03] Asset Search**: Instant palette filtering by substring.
-4. **[REQ-ANIM-01] Frame Batcher**: Auto-loading frame sequences from folders.
+- **REQ-EFF-01..03**: Implementation of Undo/Redo, Bucket Tool, and Asset Search.
+- **REQ-ANIM-01**: Automated loading of animation frame sequences.
 
 ---
 
