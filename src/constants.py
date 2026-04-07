@@ -7,7 +7,15 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.pa
 WIDTH, HEIGHT = 1280, 720
 TILE_W, TILE_H = 128, 64
 GRID_SIZE = 15
-VERSION = "v1.6 (Level 3)"
+VERSION = "v2.0 (Workbench Redesign)"
+
+# UI Layout Dimensions
+UI_TOP_BAR_H = 32
+UI_LEFT_TOOLBAR_W = 52
+UI_RIGHT_SIDEBAR_W = 320
+UI_BOTTOM_BAR_H = 30
+UI_TAB_H = 40
+UI_TOOL_ICON_SIZE = 36
 
 # Limits & Timings
 UNDO_LIMIT = 50
@@ -32,3 +40,12 @@ LAYER_OBJECTS = "objects"
 LAYER_VFX = "vfx"
 LAYER_COLLISION = "collision"
 LAYER_ANIM = "animations"
+
+# Fog Zone Constants
+FOG_SHAPE_RECT = "rect"
+FOG_SHAPE_ELLIPSE = "ellipse"
+DEFAULT_FOG_COLOR = (220, 230, 240)
+DEFAULT_FOG_DENSITY = 0.5
+DEFAULT_FOG_SPEED = 0.2
+DEFAULT_FOG_FEATHER = 0.25
+DEFAULT_PUFF_COUNT = 40

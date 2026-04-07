@@ -39,18 +39,22 @@ class StillnessEditor:
         self.brush_fh = self.brush_fv = self.brush_shadow = self.brush_scatter = False
         self.brush_rot = 0
         self.zoom_level = 1.0
-        self.top_bar_height = 30
+        self.top_bar_height = UI_TOP_BAR_H
         self.camera_offset = pygame.Vector2(self.w // 2, self.h // 4 + self.top_bar_height)
         self.show_grid = True
         self.active_menu = None
         self.confirm_target = None
         self.modal_buttons = []
-        self.ui_panel_width = 250
         self.status_message = None
         self.status_timer = 0
         self.search_active = False # REQ-EFF-03 (Focus)
         self.palette_scroll_y = 0
         self.max_palette_scroll = 0
+        
+        # New Redesign State (v2.0)
+        self.active_tab = "scene" # "scene", "assets", "inspector"
+        self.active_tool = "brush"   # "select", "brush", "bucket", "fog", "eraser"
+        self.ui_rects = {}
         
         # Level 3: Selection & Clipboard (REQ-EFF-04)
         self.selection_start = None
@@ -84,6 +88,12 @@ class StillnessEditor:
         self.splashes = [] # List of {"x": x, "y": y, "life": life}
         self.show_weather_config = False
         self.init_rain()
+        
+        # Professional Fog Zones (REQ-FOG-01)
+        self.fog_zones = []
+        self.selected_fog_idx = -1
+        self.fog_draw_start = None
+        self.fog_tool_active = False # True when Fog Zone tool is picked
 
         self.menu_items = {
             "FILE": [("New Map", "reset"), ("Open...", "load"), ("Save As...", "save"), ("Configuration", "config"), ("-", ""), ("Exit", "exit")],
@@ -141,12 +151,87 @@ class StillnessEditor:
         if self.rain_splashes:
             self.splashes.append({"x": x, "y": y, "life": 10})
 
+    def init_fog_puffs(self, zone):
+        """Generates procedural mist particles for a specific zone."""
+        import random
+        # Number of puffs scales with zone density and area
+        area = zone["size"][0] * zone["size"][1]
+        count = int(DEFAULT_PUFF_COUNT * zone.get("density", DEFAULT_FOG_DENSITY) * (area ** 0.5))
+        zone["puffs"] = []
+        for _ in range(max(5, count)):
+            zone["puffs"].append({
+                "rel_x": random.uniform(0, 1),
+                "rel_y": random.uniform(0, 1),
+                "size_mult": random.uniform(0.8, 1.5),
+                "vx": random.uniform(0.001, 0.003),
+                "vy": random.uniform(-0.001, 0.001)
+            })
+
+    def update_fog_zones(self):
+        """Drifts fog puffs and handles wrapping."""
+        for zone in self.fog_zones:
+            speed = zone.get("speed", DEFAULT_FOG_SPEED)
+            for p in zone["puffs"]:
+                p["rel_x"] += p["vx"] * speed
+                p["rel_y"] += p["vy"] * speed
+                if p["rel_x"] > 1.1: p["rel_x"] = -0.1
+                if p["rel_x"] < -0.1: p["rel_x"] = 1.1
+                if p["rel_y"] > 1.1: p["rel_y"] = -0.1
+                if p["rel_y"] < -0.1: p["rel_y"] = 1.1
+
     def draw_fog_effect(self):
-        if not self.show_fog: return
-        fog_surf = pygame.Surface((self.w, self.h), pygame.SRCALPHA)
-        color = self.fog_presets[self.fog_color_idx]
-        fog_surf.fill((*color, 80)) 
-        self.screen.blit(fog_surf, (0, 0))
+        # 1. Global Fog (Legacy/Toggle)
+        if self.show_fog:
+            fog_surf = pygame.Surface((self.w, self.h), pygame.SRCALPHA)
+            color = self.fog_presets[self.fog_color_idx]
+            fog_surf.fill((*color, 80)) 
+            self.screen.blit(fog_surf, (0, 0))
+
+        # 2. Professional Fog Zones
+        if not self.fog_zones: return
+        
+        zw, zh = TILE_W * self.zoom_level, TILE_H * self.zoom_level
+        
+        for idx, zone in enumerate(self.fog_zones):
+            z_pos = zone["pos"]
+            z_size = zone["size"]
+            z_color = zone.get("color", DEFAULT_FOG_COLOR)
+            z_feather = zone.get("feather", DEFAULT_FOG_FEATHER)
+            base_alpha = int(zone.get("density", DEFAULT_FOG_DENSITY) * 120)
+            
+            for p in zone["puffs"]:
+                wx, wy = z_pos[0] + p["rel_x"] * z_size[0], z_pos[1] + p["rel_y"] * z_size[1]
+                psx, psy = world_to_screen(wx, wy, self.zoom_level, self.camera_offset)
+                
+                # Culling
+                if not (-200 < psx < self.w + 200 and -200 < psy < self.h + 200): continue
+                
+                # Alpha Feathering
+                rx, ry = p["rel_x"], p["rel_y"]
+                fade = 1.0
+                if zone.get("shape") == FOG_SHAPE_RECT:
+                    fade = min(rx, 1.0-rx, ry, 1.0-ry) / max(0.01, z_feather)
+                else:
+                    dist = ((rx-0.5)**2 + (ry-0.5)**2)**0.5 * 2
+                    fade = (1.0 - dist) / max(0.01, z_feather)
+                
+                final_alpha = int(base_alpha * max(0.0, min(1.0, fade)))
+                if final_alpha <= 5: continue
+                
+                puff_size = int(64 * self.zoom_level * p["size_mult"])
+                # Procedural Puff Drawing (Optimized)
+                # Note: For production use a pre-rendered radial sprite
+                ps = pygame.Surface((puff_size*2, puff_size*2), pygame.SRCALPHA)
+                pygame.draw.circle(ps, (*z_color, final_alpha), (puff_size, puff_size), puff_size)
+                self.screen.blit(ps, (psx - puff_size, psy - puff_size), special_flags=pygame.BLEND_RGBA_ADD)
+
+            # Editor Visualizer (Selected)
+            if idx == self.selected_fog_idx:
+                pts = [world_to_screen(z_pos[0], z_pos[1], self.zoom_level, self.camera_offset),
+                       world_to_screen(z_pos[0]+z_size[0], z_pos[1], self.zoom_level, self.camera_offset),
+                       world_to_screen(z_pos[0]+z_size[0], z_pos[1]+z_size[1], self.zoom_level, self.camera_offset),
+                       world_to_screen(z_pos[0], z_pos[1]+z_size[1], self.zoom_level, self.camera_offset)]
+                pygame.draw.lines(self.screen, (255, 255, 100), True, pts, 2)
 
     def draw_rain_effect(self):
         if not self.show_rain: return
@@ -258,260 +343,229 @@ class StillnessEditor:
     def refresh_palette(self):
         self.palette_buttons = []
         if self.current_layer not in self.am.assets: return
-        x_start, y_start = self.w - self.ui_panel_width + 10, self.top_bar_height + 360
-        thumb_w, thumb_h = (self.ui_panel_width - 36) // 2, 60
         
-        # Filtering logic (REQ-EFF-03)
+        # New workbench layout positioning
+        x_start = self.w - UI_RIGHT_SIDEBAR_W + 10
+        y_start = UI_TOP_BAR_H + UI_TAB_H + 55 # Below tab and search bar
+        thumb_w, thumb_h = (UI_RIGHT_SIDEBAR_W - 30) // 2, 60
+        
+        # Filtering logic
         if self.current_layer == LAYER_ANIM:
             assets = {k: v for k, v in self.am.assets[LAYER_ANIM].items() if self.search_query.lower() in k.lower()}
             for i, (name, img) in enumerate(assets.items()):
-                rect = pygame.Rect(x_start + (i%2)*(thumb_w+10), y_start + (i//2)*(thumb_h+10), thumb_w, thumb_h)
+                rect = pygame.Rect(x_start + (i%2)*(thumb_w + 10), y_start + (i//2)*(thumb_h + 10), thumb_w, thumb_h)
                 self.palette_buttons.append({"rect": rect, "name": name, "type": "item", "img": img, "anim": True})
-            return
-
-        assets = self.am.assets[self.current_layer]
-        if self.current_layer == LAYER_BASE:
-            items = {k: v for k, v in assets["main"].items() if self.search_query.lower() in k.lower()}
-            for i, (name, img) in enumerate(items.items()):
-                rect = pygame.Rect(x_start + (i%2)*(thumb_w+10), y_start + (i//2)*(thumb_h+10), thumb_w, thumb_h)
-                self.palette_buttons.append({"rect": rect, "name": name, "type": "item", "img": img})
-        elif not self.current_cat:
-            for i, cat in enumerate(assets):
-                rect = pygame.Rect(x_start + (i%2)*(thumb_w+10), y_start + (i//2)*(thumb_h+10), thumb_w, thumb_h)
-                self.palette_buttons.append({"rect": rect, "name": cat, "type": "category"})
         else:
-            raw_items = assets.get(self.current_cat, {})
-            items = {k: v for k, v in raw_items.items() if self.search_query.lower() in k.lower()}
-            display_items = [(".. BACK", None)] + list(items.items())
-            for i, (name, img) in enumerate(display_items):
-                rect = pygame.Rect(x_start + (i%2)*(thumb_w+10), y_start + (i//2)*(thumb_h+10), thumb_w, thumb_h)
-                if name == ".. BACK": self.palette_buttons.append({"rect": rect, "name": name, "type": "back"})
-                else: self.palette_buttons.append({"rect": rect, "name": name, "type": "item", "img": img})
+            assets = self.am.assets[self.current_layer]
+            if self.current_layer == LAYER_BASE:
+                items = {k: v for k, v in assets.get("main", {}).items() if self.search_query.lower() in k.lower()}
+                for i, (name, img) in enumerate(items.items()):
+                    rect = pygame.Rect(x_start + (i%2)*(thumb_w + 10), y_start + (i//2)*(thumb_h + 10), thumb_w, thumb_h)
+                    self.palette_buttons.append({"rect": rect, "name": name, "type": "item", "img": img})
+            elif not self.current_cat:
+                for i, cat in enumerate(assets):
+                    rect = pygame.Rect(x_start + (i%2)*(thumb_w + 10), y_start + (i//2)*(thumb_h + 10), thumb_w, thumb_h)
+                    self.palette_buttons.append({"rect": rect, "name": cat, "type": "category"})
+            else:
+                raw_items = assets.get(self.current_cat, {})
+                items = {k: v for k, v in raw_items.items() if self.search_query.lower() in k.lower()}
+                display_items = [(".. BACK", None)] + list(items.items())
+                for i, (name, img) in enumerate(display_items):
+                    rect = pygame.Rect(x_start + (i%2)*(thumb_w + 10), y_start + (i//2)*(thumb_h + 10), thumb_w, thumb_h)
+                    if name == ".. BACK": self.palette_buttons.append({"rect": rect, "name": name, "type": "back"})
+                    else: self.palette_buttons.append({"rect": rect, "name": name, "type": "item", "img": img})
         
         # Calculate Max Scroll
-        visible_h = self.h - (y_start + 10)
+        visible_h = self.h - (y_start + UI_BOTTOM_BAR_H + 10)
         total_h = ((len(self.palette_buttons) + 1) // 2) * (thumb_h + 10)
-        self.max_palette_scroll = max(0, total_h - visible_h + 20)
+        self.max_palette_scroll = max(0, total_h - visible_h + 40)
 
     def handle_events(self):
+        mx, my = pygame.mouse.get_pos()
         for event in pygame.event.get():
             if event.type == pygame.QUIT: self.running = False
-            if event.type == pygame.VIDEORESIZE: self.w, self.h = event.w, event.h; self.update_ui_layout(); self.refresh_palette()
-            if event.type == pygame.MOUSEWHEEL:
-                mx, my = pygame.mouse.get_pos()
-                if mx > self.w - self.ui_panel_width: # Over sidebar
-                    self.palette_scroll_y = max(0, min(self.max_palette_scroll, self.palette_scroll_y - event.y * 30))
-                else: # Over grid
-                    self.zoom_level = max(0.2, min(4.0, self.zoom_level + event.y * 0.1))
-            
-            # Keyboard handling (Search & Shortcuts)
-            if event.type == pygame.KEYDOWN:
-                # 1. Ctrl Shortcuts (Priority)
-                if event.mod & pygame.KMOD_CTRL:
-                    if event.key == pygame.K_z: self.undo(); continue
-                    if event.key == pygame.K_y: self.redo(); continue
-                    if event.key == pygame.K_s: self.save_map(); continue
-                    if event.key == pygame.K_c: self.copy_selection(); continue
-                    if event.key == pygame.K_v: 
-                        self.paste_mode = not self.paste_mode
-                        self.status_message = "PASTE MODE " + ("ON" if self.paste_mode else "OFF")
-                        self.status_timer = 60; continue
-                    if event.key == pygame.K_x: self.cut_selection(); continue
+            if event.type == pygame.VIDEORESIZE:
+                self.w, self.h = event.w, event.h
+                self.update_ui_layout()
+                self.refresh_palette()
 
-                # 2. Escape Logic (Always active)
-                if event.key == pygame.K_ESCAPE:
-                    if self.show_weather_config: self.show_weather_config = False
-                    elif self.search_active: self.search_active = False 
-                    elif self.search_query: self.search_query = ""; self.refresh_palette()
-                    elif self.metadata_focus: self.metadata_focus = False
-                    else: self.show_confirmation("exit")
-                    continue
+            # 1. MODAL OVERLAY PRIORITY
+            if self.confirm_target:
+                if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                    for b in self.modal_buttons:
+                        if b["rect"].collidepoint(mx, my):
+                            if b["value"]:
+                                if self.confirm_target == "reset": 
+                                    self.save_snapshot()
+                                    self.grid = [[{k: (None if "id" in k else (0 if "offset" in k else ("" if k=="metadata" else False))) for k in self.grid[0][0].keys()} for _ in range(GRID_SIZE)] for _ in range(GRID_SIZE)]
+                                elif self.confirm_target == "exit": self.running = False
+                            self.confirm_target = None
+                continue
 
-                # 3. Metadata Input (Exclusive focus)
-                if self.metadata_focus:
-                    gx, gy = self.selection_start if self.selection_start else (0,0)
-                    if event.key == pygame.K_BACKSPACE:
-                        self.grid[gx][gy]["metadata"] = self.grid[gx][gy]["metadata"][:-1]
-                    elif event.key == pygame.K_RETURN:
-                        self.metadata_focus = False
-                    elif event.unicode.isprintable():
-                        self.grid[gx][gy]["metadata"] += event.unicode
-                    continue
-
-                # 4. Search Input (Priority if active)
-                if self.search_active:
-                    if event.key == pygame.K_BACKSPACE:
-                        self.search_query = self.search_query[:-1]; self.refresh_palette()
-                    elif event.unicode.isprintable():
-                        self.search_query += event.unicode; self.refresh_palette()
-                    continue
-
-                # 5. Global Shortcuts & Nudging (Only if no focus)
-                if not self.search_active and not self.metadata_focus:
-                    if event.key == pygame.K_h: self.handle_menu_action("grid")
-                    elif event.key == pygame.K_r: self.handle_menu_action("rotate")
-                    elif event.key == pygame.K_x: self.handle_menu_action("clear")
-                    elif event.key == pygame.K_g: self.handle_menu_action("shadow")
-                    elif event.key == pygame.K_p: self.handle_menu_action("scatter")
-                    elif event.key == pygame.K_f: self.handle_menu_action("flip_h")
-                    elif event.key == pygame.K_v: self.handle_menu_action("flip_v")
-                    elif event.key == pygame.K_5: self.handle_menu_action(LAYER_ANIM)
-                    
-                    # Nudging (REQ-DETAIL-01)
-                    elif self.selection_start == self.selection_end and self.selection_start is not None:
-                        gx, gy = self.selection_start
-                        step = 1 if not (event.mod & pygame.KMOD_SHIFT) else 5
-                        if event.key == pygame.K_UP: self.grid[gx][gy]["offset_y"] -= step
-                        elif event.key == pygame.K_DOWN: self.grid[gx][gy]["offset_y"] += step
-                        elif event.key == pygame.K_LEFT: self.grid[gx][gy]["offset_x"] -= step
-                        elif event.key == pygame.K_RIGHT: self.grid[gx][gy]["offset_x"] += step
-                        elif event.key == pygame.K_DELETE: self.grid[gx][gy]["offset_x"] = self.grid[gx][gy]["offset_y"] = 0
-
-            if event.type == pygame.MOUSEMOTION:
-                if pygame.mouse.get_pressed()[0] and (pygame.key.get_mods() & pygame.KMOD_CTRL):
-                    mx, my = pygame.mouse.get_pos()
-                    gx, gy = screen_to_world(mx, my, self.zoom_level, self.camera_offset)
-                    if 0 <= gx < GRID_SIZE and 0 <= gy < GRID_SIZE:
-                        self.selection_end = (gx, gy)
-
-            if event.type == pygame.MOUSEBUTTONDOWN:
-                mx, my = pygame.mouse.get_pos()
-                # Handle dragging for selection
-                if pygame.mouse.get_pressed()[0] and (pygame.key.get_mods() & pygame.KMOD_CTRL):
-                    gx, gy = screen_to_world(mx, my, self.zoom_level, self.camera_offset)
-                    if 0 <= gx < GRID_SIZE and 0 <= gy < GRID_SIZE:
-                        self.selection_end = (gx, gy)
-                
-                # Metadata Focus Check
-                if self.selection_start == self.selection_end and self.selection_start:
-                    y_meta = self.top_bar_height + 270 + 25
-                    meta_r = pygame.Rect(self.w - self.ui_panel_width + 15, y_meta, self.ui_panel_width - 30, 25)
-                    if meta_r.collidepoint(mx, my):
-                        self.metadata_focus = True; self.search_active = False; return
-                self.metadata_focus = False
-                if self.active_menu:
+            # 2. DROPDOWN PRIORITY
+            if self.active_menu:
+                if event.type == pygame.MOUSEBUTTONDOWN:
                     m_root = next((b["rect"] for b in self.buttons if b["value"] == self.active_menu), None)
                     if m_root:
                         items = self.menu_items[self.active_menu]
                         for i, (text, val) in enumerate(items):
                             if text == "-": continue
-                            if pygame.Rect(m_root.x, self.top_bar_height + i*25, 180, 25).collidepoint(mx, my):
-                                self.handle_menu_action(val); self.active_menu = None; return
+                            if pygame.Rect(m_root.x, UI_TOP_BAR_H + i*25, 180, 25).collidepoint(mx, my):
+                                self.handle_menu_action(val)
                     self.active_menu = None
-                
-                if self.confirm_target:
-                    for b in self.modal_buttons:
-                        if b["rect"].collidepoint(mx, my):
-                            if b["value"]:
-                                if self.confirm_target == "reset": self.save_snapshot(); self.grid = [[{k: (None if "id" in k else False) for k in self.grid[0][0].keys()} for _ in range(GRID_SIZE)] for _ in range(GRID_SIZE)]
-                                elif self.confirm_target == "exit": self.running = False
-                            self.confirm_target = None; return
-                
-                if self.show_weather_config:
-                    for b in self.weather_buttons:
-                        if b["rect"].collidepoint(mx, my):
-                            val = b["value"]
-                            if val == "close": self.show_weather_config = False
-                            elif val == "fog": self.show_fog = not self.show_fog
-                            elif val == "fog_cycle": self.fog_color_idx = (self.fog_color_idx + 1) % len(self.fog_presets)
-                            elif val == "rain": self.show_rain = not self.show_rain; self.init_rain()
-                            elif val == "rain_floor": self.rain_collision_floor = not self.rain_collision_floor
-                            elif val == "rain_obj": self.rain_collision_objects = not self.rain_collision_objects
-                            elif val == "rain_splash": self.rain_splashes = not self.rain_splashes
-                            elif val == "rain_density": 
-                                self.rain_density = 500 if self.rain_density == 100 else (1000 if self.rain_density == 500 else 100)
-                                self.init_rain()
-                            elif val == "rain_angle": 
-                                # Simulate slider: get mouse pos relative to button box
-                                bx = b["rect"].x + 130
-                                bw = 60
-                                rel_x = (mx - bx) / bw
-                                self.rain_angle = int(max(-10, min(10, (rel_x * 20.0) - 10)))
-                            return
-                    if not self.weather_rect.collidepoint(mx, my): self.show_weather_config = False; return
-                    return
-                
-                # Check for Search Bar Focus (Panel area)
-                panel_x = self.w - self.ui_panel_width
-                search_y = self.top_bar_height + 150 # top_bar_height + 15 + (25*5) + 10
-                search_rect = pygame.Rect(panel_x + 15, search_y, self.ui_panel_width - 30, 30)
-                if search_rect.collidepoint(mx, my):
-                    self.search_active = True
-                elif mx < panel_x or my < self.top_bar_height:
-                    self.search_active = False # Deactivate if clicking grid/menu
+                    continue
 
-                # Sidebar Interaction check (Priority over Grid, but NOT over Top Bar)
-                panel_x = self.w - self.ui_panel_width
-                if mx >= panel_x and my >= self.top_bar_height:
-                    found_btn = False
+            # 3. KEYBOARD shorthands
+            if event.type == pygame.KEYDOWN:
+                if self.metadata_focus: self.handle_metadata_input(event); continue
+                if self.search_active: self.handle_search_input(event); continue
+                
+                if event.mod & pygame.KMOD_CTRL:
+                    if event.key == pygame.K_z: self.undo(); continue
+                    if event.key == pygame.K_y: self.redo(); continue
+                    if event.key == pygame.K_s: self.save_map(); continue
+                    if event.key == pygame.K_c: self.copy_selection(); continue
+                    if event.key == pygame.K_v: self.paste_mode = not self.paste_mode; continue
+                    if event.key == pygame.K_x: self.cut_selection(); continue
+                
+                if event.key == pygame.K_ESCAPE:
+                    if self.search_query: self.search_query = ""; self.refresh_palette()
+                    else: self.show_confirmation("exit")
+                    continue
+                
+            # 4. MOUSE DISPATCHING
+            if event.type == pygame.MOUSEWHEEL:
+                if self.ui_rects["right_sidebar"].collidepoint(mx, my):
+                    self.palette_scroll_y = max(0, min(self.max_palette_scroll, self.palette_scroll_y - event.y * 30))
+                else:
+                    self.zoom_level = max(0.2, min(4.0, self.zoom_level + event.y * 0.1))
+
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                if self.ui_rects["top_bar"].collidepoint(mx, my):
                     for b in self.buttons:
-                        if b["rect"].collidepoint(mx, my):
-                            if b["type"] == "menu_root": self.active_menu = b["value"] if self.active_menu != b["value"] else None
-                            else: self.handle_menu_action(b["value"])
-                            found_btn = True; break
-                    
-                    if not found_btn:
-                        for b in self.palette_buttons:
-                            if b["rect"].move(0, -self.palette_scroll_y).collidepoint(mx, my):
-                                if my < self.top_bar_height + 360: continue 
-                                if b["type"] == "category": self.current_cat = b["name"]; self.refresh_palette(); self.palette_scroll_y = 0
-                                elif b["type"] == "back": self.current_cat = None; self.refresh_palette(); self.palette_scroll_y = 0
-                                else: self.selected_item = b["name"]
-                                found_btn = True; break
-                    
-                    # Deactivate search focus if clicking sidebar but NOT the search bar itself
-                    search_y = self.top_bar_height + 150
-                    search_rect = pygame.Rect(panel_x + 15, search_y, self.ui_panel_width - 30, 30)
-                    if not search_rect.collidepoint(mx, my):
-                        self.search_active = False
-                    
-                    if found_btn: return
+                        if b["type"] == "menu_root" and b["rect"].collidepoint(mx, my):
+                            self.active_menu = b["value"]; return
+                
+                elif self.ui_rects["left_toolbar"].collidepoint(mx, my):
+                    for b in self.buttons:
+                        if b["type"] == "tool" and b["rect"].collidepoint(mx, my):
+                            self.active_tool = b["value"]
+                            if b["value"] in ["brush", "bucket"]: self.active_tab = "assets"
+                            return
 
-                # Check top bar buttons (File, Edit, etc) if not caught by menu handling
-                for b in self.buttons:
-                    if b["type"] == "menu_root" and b["rect"].collidepoint(mx, my):
-                        self.active_menu = b["value"] if self.active_menu != b["value"] else None
+                elif self.ui_rects["right_sidebar"].collidepoint(mx, my):
+                    self.handle_sidebar_click(mx, my, event.button)
+                
+                elif self.ui_rects["viewport"].collidepoint(mx, my):
+                    self.handle_viewport_click(mx, my, event.button)
+
+            if event.type == pygame.MOUSEMOTION:
+                if pygame.mouse.get_pressed()[0] and self.active_tool == "select":
+                    if self.ui_rects["viewport"].collidepoint(mx, my):
+                        gx, gy = screen_to_world(mx, my, self.zoom_level, self.camera_offset)
+                        if 0 <= gx < GRID_SIZE and 0 <= gy < GRID_SIZE:
+                            self.selection_end = (gx, gy)
+
+    def handle_metadata_input(self, event):
+        if not self.selection_start: return
+        gx, gy = self.selection_start
+        if event.key == pygame.K_BACKSPACE: self.grid[gx][gy]["metadata"] = self.grid[gx][gy]["metadata"][:-1]
+        elif event.key == pygame.K_RETURN: self.metadata_focus = False
+        elif event.unicode.isprintable(): self.grid[gx][gy]["metadata"] += event.unicode
+
+    def handle_search_input(self, event):
+        if event.key == pygame.K_BACKSPACE: self.search_query = self.search_query[:-1]; self.refresh_palette()
+        elif event.key == pygame.K_RETURN: self.search_active = False
+        elif event.unicode.isprintable(): self.search_query += event.unicode; self.refresh_palette()
+
+    def handle_sidebar_click(self, mx, my, button):
+        # 1. Tabs
+        for b in self.buttons:
+            if b["type"] == "tab" and b["rect"].collidepoint(mx, my):
+                self.active_tab = b["value"]; return
+
+        # 2. Content
+        if self.active_tab == "assets":
+            search_y = UI_TOP_BAR_H + UI_TAB_H + 10
+            search_rect = pygame.Rect(self.w - UI_RIGHT_SIDEBAR_W + 10, search_y, UI_RIGHT_SIDEBAR_W - 20, 30)
+            if search_rect.collidepoint(mx, my): self.search_active = True; return
+            self.search_active = False
+            
+            for b in self.palette_buttons:
+                p_rect = b["rect"].copy()
+                p_rect.y -= self.palette_scroll_y
+                if p_rect.collidepoint(mx, my):
+                    if b["type"] == "category": self.current_cat = b["name"]; self.refresh_palette(); self.palette_scroll_y = 0
+                    elif b["type"] == "back": self.current_cat = None; self.refresh_palette(); self.palette_scroll_y = 0
+                    else: self.selected_item = b["name"]
+                    return
+
+        elif self.active_tab == "inspector":
+            if self.selection_start:
+                meta_y = UI_TOP_BAR_H + UI_TAB_H + 140
+                meta_rect = pygame.Rect(self.w - UI_RIGHT_SIDEBAR_W + 10, meta_y, UI_RIGHT_SIDEBAR_W - 20, 28)
+                if meta_rect.collidepoint(mx, my): self.metadata_focus = True; return
+            self.metadata_focus = False
+
+            if self.selected_fog_idx != -1:
+                y_fz = UI_TOP_BAR_H + UI_TAB_H + 200
+                props = ["toggle_shape", "adj_density", "adj_feather", "delete_zone"]
+                for i, p_val in enumerate(props):
+                    rect = pygame.Rect(self.w - UI_RIGHT_SIDEBAR_W + 10, y_fz + i*28, UI_RIGHT_SIDEBAR_W - 20, 24)
+                    if rect.collidepoint(mx, my):
+                        fz = self.fog_zones[self.selected_fog_idx]
+                        if p_val == "toggle_shape": fz["shape"] = FOG_SHAPE_RECT if fz.get("shape") == FOG_SHAPE_ELLIPSE else FOG_SHAPE_ELLIPSE
+                        elif p_val == "adj_density": fz["density"] = (fz.get("density", 0.5) % 1.0) + 0.1; self.init_fog_puffs(fz)
+                        elif p_val == "adj_feather": fz["feather"] = (fz.get("feather", 0.25) + 0.05) if fz.get("feather", 0.25) < 0.5 else 0.05
+                        elif p_val == "delete_zone": self.fog_zones.pop(self.selected_fog_idx); self.selected_fog_idx = -1
                         return
 
-                gx, gy = screen_to_world(mx, my, self.zoom_level, self.camera_offset)
-                if 0 <= gx < GRID_SIZE and 0 <= gy < GRID_SIZE:
-                    if event.button == 1:
-                        if pygame.key.get_mods() & pygame.KMOD_CTRL: # START SELECTION
-                            self.selection_start = self.selection_end = (gx, gy)
-                            self.metadata_focus = False
-                            return
-                        elif self.paste_mode: # PASTE
-                            self.paste_at(gx, gy)
-                            return
-                        elif pygame.key.get_mods() & pygame.KMOD_SHIFT: # BUCKET FILL
-                            self.bucket_fill(gx, gy)
-                        elif self.current_layer == LAYER_COLLISION: 
-                            self.save_snapshot(); self.grid[gx][gy]["collision"] = True
-                        else:
-                            self.save_snapshot()
-                            self.selection_start = self.selection_end = (gx, gy)
-                            
-                            fw, fh = self.am.get_asset_footprint(self.selected_item, self.brush_rot)
-                            sx, sy = gx - fw//2, gy - fh//2
-                            key = "vfx" if self.current_layer == LAYER_ANIM else self.current_layer
-                            self.grid[gx][gy][f"{key}_id"] = self.selected_item
-                            
-                            rotation = self.brush_rot
-                            if self.brush_scatter:
-                                import random
-                                rotation = random.choice([0, 90, 180, 270])
-                            
-                            self.grid[gx][gy][f"{key}_rot"] = rotation
-                            if self.current_layer == LAYER_OBJECTS:
-                                self.grid[gx][gy]["objects_shadow"] = self.brush_shadow
-                                for ix in range(fw):
-                                    for iy in range(fh):
-                                        if 0 <= sx+ix < GRID_SIZE and 0 <= sy+iy < GRID_SIZE: self.grid[sx+ix][sy+iy]["collision"] = True
-                    elif event.button == 3:
+        elif self.active_tab == "scene":
+            y_l = UI_TOP_BAR_H + UI_TAB_H + 35
+            layers = [LAYER_BASE, LAYER_OBJECTS, LAYER_VFX, LAYER_COLLISION, LAYER_ANIM]
+            for i, l in enumerate(layers):
+                btn_r = pygame.Rect(self.w - UI_RIGHT_SIDEBAR_W + 10, y_l + i*28, UI_RIGHT_SIDEBAR_W - 20, 24)
+                if btn_r.collidepoint(mx, my): self.current_layer = l; self.refresh_palette(); return
+            
+            y_e = y_l + (5 * 28) + 40
+            t_vals = [("grid", "show_grid"), ("fog", "show_fog"), ("rain", "show_rain")]
+            for i, (v, attr) in enumerate(t_vals):
+                btn_r = pygame.Rect(self.w - UI_RIGHT_SIDEBAR_W + 10, y_e + i*28, UI_RIGHT_SIDEBAR_W - 20, 24)
+                if btn_r.collidepoint(mx, my):
+                    setattr(self, attr, not getattr(self, attr))
+                    if v == "rain": self.init_rain()
+                    return
 
-                        self.save_snapshot()
-                        if self.current_layer == LAYER_COLLISION: self.grid[gx][gy]["collision"] = False
-                        else: self.grid[gx][gy][f"{self.current_layer}_id"] = None
+    def handle_viewport_click(self, mx, my, button):
+        gx, gy = screen_to_world(mx, my, self.zoom_level, self.camera_offset)
+        if not (0 <= gx < GRID_SIZE and 0 <= gy < GRID_SIZE): return
+        
+        if button == 3 or self.active_tool == "eraser":
+            self.save_snapshot()
+            key = "vfx" if self.current_layer == LAYER_ANIM else self.current_layer
+            if self.current_layer == LAYER_COLLISION: self.grid[gx][gy]["collision"] = False
+            else: self.grid[gx][gy][f"{key}_id"] = None
+            return
+
+        if button == 1:
+            if self.active_tool == "select":
+                for idx, zone in enumerate(self.fog_zones):
+                    z_pos, z_sz = zone["pos"], zone["size"]
+                    if z_pos[0] <= gx <= z_pos[0]+z_sz[0] and z_pos[1] <= gy <= z_pos[1]+z_sz[1]:
+                        self.selected_fog_idx = idx; self.active_tab = "inspector"; return
+                self.selection_start = self.selection_end = (gx, gy); self.selected_fog_idx = -1; self.active_tab = "inspector"
+            elif self.active_tool == "brush":
+                if not self.selected_item: return
+                self.save_snapshot()
+                key = "vfx" if self.current_layer == LAYER_ANIM else self.current_layer
+                self.grid[gx][gy][f"{key}_id"] = self.selected_item
+                self.grid[gx][gy][f"{key}_rot"] = self.brush_rot
+                if self.current_layer == LAYER_OBJECTS: self.grid[gx][gy]["objects_shadow"] = self.brush_shadow
+            elif self.active_tool == "bucket":
+                if not self.selected_item: return
+                self.bucket_fill(gx, gy)
+            elif self.active_tool == "fog":
+                self.fog_draw_start = (gx, gy)
 
     def run(self):
         self.ui.show_splash()
@@ -613,73 +667,86 @@ class StillnessEditor:
             self.screen.blit(self.bold_font.render("Y", True, (50, 255, 50)), (o_x + iso_y[0]*axis_len - 15, o_y + iso_y[1]*axis_len))
             self.screen.blit(self.bold_font.render("Z", True, (50, 100, 255)), (o_x + iso_z[0]*axis_len - 10, o_y + iso_z[1]*axis_len - 20))
             
-            # --- BRUSH PREVIEW & FOOTPRINT ---
-            mx, my = pygame.mouse.get_pos()
-            if mx < self.w - self.ui_panel_width and my > self.top_bar_height:
-                bgx, bgy = screen_to_world(mx, my, self.zoom_level, self.camera_offset)
-                if 0 <= bgx < GRID_SIZE and 0 <= bgy < GRID_SIZE:
-                    fw, fh = self.am.get_asset_footprint(self.selected_item, self.brush_rot)
-                    sx_root, sy_root = bgx - fw//2, bgy - fh//2
-                    
-                    # Draw Blue Footprint (Malla azul)
-                    for ix in range(fw):
-                        for iy in range(fh):
-                            tx, ty = sx_root+ix, sy_root+iy
-                            if 0 <= tx < GRID_SIZE and 0 <= ty < GRID_SIZE:
-                                psx, psy = world_to_screen(tx, ty, self.zoom_level, self.camera_offset)
-                                pygame.draw.polygon(self.screen, HIGHLIGHT_COLOR, [(psx, psy), (psx+zw//2, psy+zh//2), (psx, psy+zh), (psx-zw//2, psy+zh//2)])
-                    
-                    # Item Preview (Semi-transparent)
-                    if self.selected_item and self.current_layer != LAYER_COLLISION:
-                        img_prev = None
-                        if self.selected_item in self.am.animations: img_prev = self.am.animations[self.selected_item][0]
-                        else:
-                            for cat in self.am.assets.get(self.current_layer, {}).values():
-                                if self.selected_item in cat: img_prev = cat[self.selected_item]; break
-                        
-                        if img_prev:
-                            p_iw, p_ih = (int(zw), int(zh)) if self.current_layer == LAYER_BASE else (int(img_prev.get_width()*self.zoom_level), int(img_prev.get_height()*self.zoom_level))
-                            p_img_s = pygame.transform.scale(img_prev, (max(1, p_iw), max(1, p_ih)))
-                            if self.brush_rot != 0: p_img_s = pygame.transform.rotate(p_img_s, -self.brush_rot); p_img_s = pygame.transform.scale(p_img_s, (max(1, p_iw), max(1, p_ih)))
-                            p_img_s.set_alpha(150)
-                            
-                            if self.current_layer == LAYER_BASE: self.screen.blit(p_img_s, (world_to_screen(bgx, bgy, self.zoom_level, self.camera_offset)[0] - zw//2, world_to_screen(bgx, bgy, self.zoom_level, self.camera_offset)[1]))
-                            else:
-                                p_scx = (bgx - bgy) * (zw // 2) + self.camera_offset.x
-                                p_scy = (bgx + bgy) * (zh // 2) + self.camera_offset.y
-                                self.screen.blit(p_img_s, (p_scx - p_img_s.get_width()//2, p_scy + zh//2 - p_img_s.get_height()))
-
             if self.status_timer > 0: self.status_timer -= 1
             
-            # Draw Brush Preview (Blue Mesh + Ghost)
-            self.ui.draw_brush_preview(*pygame.mouse.get_pos())
+            # --- VIEWPORT UI & EFFECTS ---
+            if self.ui_rects["viewport"].collidepoint(pygame.mouse.get_pos()):
+                self.ui.draw_brush_preview(*pygame.mouse.get_pos())
             
-            # Weather Effects (On top of scene, below UI)
+            # Fog Zone Creation Preview
+            if self.fog_draw_start:
+                mx, my = pygame.mouse.get_pos()
+                mwx, mwy = screen_to_world(mx, my, self.zoom_level, self.camera_offset)
+                z_pos = (min(self.fog_draw_start[0], mwx), min(self.fog_draw_start[1], mwy))
+                z_size = (max(1, abs(self.fog_draw_start[0] - mwx)), max(1, abs(self.fog_draw_start[1] - mwy)))
+                pts = [world_to_screen(z_pos[0], z_pos[1], self.zoom_level, self.camera_offset),
+                       world_to_screen(z_pos[0]+z_size[0], z_pos[1], self.zoom_level, self.camera_offset),
+                       world_to_screen(z_pos[0]+z_size[0], z_pos[1]+z_size[1], self.zoom_level, self.camera_offset),
+                       world_to_screen(z_pos[0], z_pos[1]+z_size[1], self.zoom_level, self.camera_offset)]
+                pygame.draw.lines(self.screen, ACCENT_COLOR, True, pts, 2)
+
+            self.update_fog_zones()
             self.draw_fog_effect()
             self.draw_rain_effect()
             
-            self.ui.draw_menu_bar(); self.ui.draw_dropdowns(); self.ui.draw_sidebar(); self.ui.draw_modal(); self.ui.draw_weather_dialog(); self.ui.draw_status_message(); pygame.display.flip(); self.clock.tick(60)
+            # --- FINAL UI LAYER ---
+            self.ui.draw_menu_bar()
+            self.ui.draw_dropdowns()
+            self.ui.draw_left_toolbar()
+            self.ui.draw_right_sidebar()
+            self.ui.draw_bottom_bar()
+            self.ui.draw_modal()
+            self.ui.draw_status_message()
+            
+            pygame.display.flip()
+            self.clock.tick(60)
 
     def update_ui_layout(self):
-        self.buttons = []
-        menu_x = 10
-        for menu in self.menu_items.keys():
-            txt = self.font.render(menu, True, TEXT_COLOR)
-            rect = pygame.Rect(menu_x, 0, txt.get_width() + 20, self.top_bar_height)
-            self.buttons.append({"rect": rect, "text": menu, "type": "menu_root", "value": menu})
-            menu_x += rect.width + 5
-        
-        if self.ui_panel_width > 0:
-            tools_y = self.top_bar_height + 145
-            tool_btn_w = (self.ui_panel_width - 30) // 2
-            tools = [("UNDO [Z]", "undo"), ("REDO [Y]", "redo"), ("ROTATE [R]", "rotate"), ("SHADOW [G]", "shadow"), ("SCATTER [P]", "scatter"), ("CLEAR [X]", "clear")]
-            for i, (text, val) in enumerate(tools):
-                bx = self.w - self.ui_panel_width + 10 + (i % 2) * (tool_btn_w + 10)
-                by = tools_y + (i // 2) * 40
-                self.buttons.append({"rect": pygame.Rect(bx, by, tool_btn_w, 30), "text": text, "type": "tool", "value": val})
+        """Calculates all UI panel rectangles and button positions for the v2.0 workbench."""
+        self.ui_rects = {
+            "top_bar": pygame.Rect(0, 0, self.w, UI_TOP_BAR_H),
+            "left_toolbar": pygame.Rect(0, UI_TOP_BAR_H, UI_LEFT_TOOLBAR_W, self.h - UI_TOP_BAR_H - UI_BOTTOM_BAR_H),
+            "right_sidebar": pygame.Rect(self.w - UI_RIGHT_SIDEBAR_W, UI_TOP_BAR_H, UI_RIGHT_SIDEBAR_W, self.h - UI_TOP_BAR_H - UI_BOTTOM_BAR_H),
+            "bottom_bar": pygame.Rect(0, self.h - UI_BOTTOM_BAR_H, self.w, UI_BOTTOM_BAR_H),
+            "viewport": pygame.Rect(UI_LEFT_TOOLBAR_W, UI_TOP_BAR_H, self.w - UI_LEFT_TOOLBAR_W - UI_RIGHT_SIDEBAR_W, self.h - UI_TOP_BAR_H - UI_BOTTOM_BAR_H)
+        }
 
+        self.buttons = []
+        # 1. Top Bar Menus
+        menu_x = 10
+        for menu in ["FILE", "EDIT", "VIEW", "LAYER"]:
+            txt = self.font.render(menu, True, (255, 255, 255))
+            r = pygame.Rect(menu_x, (UI_TOP_BAR_H - 24)//2, txt.get_width() + 20, 24)
+            self.buttons.append({"rect": r, "text": menu, "value": menu, "type": "menu_root"})
+            menu_x += r.width + 5
+
+        # 2. Left Toolbar Tools
+        tools = [
+            ("S", "select", "Select & Inspector (S)"), 
+            ("B", "brush", "Brush Tool (B)"), 
+            ("F", "bucket", "Bucket Fill (F)"), 
+            ("G", "fog", "Fog Zone Tool (G)"), 
+            ("E", "eraser", "Eraser Tool (E)")
+        ]
+        for i, (icon, val, caption) in enumerate(tools):
+            r = pygame.Rect((UI_LEFT_TOOLBAR_W - UI_TOOL_ICON_SIZE)//2, UI_TOP_BAR_H + 10 + i*(UI_TOOL_ICON_SIZE + 10), UI_TOOL_ICON_SIZE, UI_TOOL_ICON_SIZE)
+            self.buttons.append({"rect": r, "text": icon, "value": val, "type": "tool", "caption": caption})
+
+        # 3. Right Sidebar Tabs
+        tab_w = UI_RIGHT_SIDEBAR_W // 3
+        for i, tab in enumerate(["scene", "assets", "inspector"]):
+            r = pygame.Rect(self.ui_rects["right_sidebar"].x + i*tab_w, UI_TOP_BAR_H, tab_w, UI_TAB_H)
+            self.buttons.append({"rect": r, "text": tab.upper(), "value": tab, "type": "tab"})
+
+        # 4. Modals and Shared UI
         self.modal_rect = pygame.Rect(self.w//2 - 200, self.h//2 - 100, 400, 200)
-        self.weather_rect = pygame.Rect(self.w//2 - 250, self.h//2 - 150, 500, 350)
+        self.modal_buttons = [
+            {"rect": pygame.Rect(self.modal_rect.x + 50, self.modal_rect.y + 130, 100, 40), "text": "YES", "value": True},
+            {"rect": pygame.Rect(self.modal_rect.x + 250, self.modal_rect.y + 130, 100, 40), "text": "NO", "value": False}
+        ]
+        
+        self.weather_rect = pygame.Rect(self.w//2 - 150, self.h//2 - 200, 300, 410)
+        # Weather buttons will be dynamically drawn in the Scene tab or as a fallback
         
     def show_confirmation(self, target):
         self.confirm_target = target
@@ -699,6 +766,7 @@ class StillnessEditor:
                     "weather": {
                         "fog": self.show_fog,
                         "fog_color_idx": self.fog_color_idx,
+                        "fog_zones": [{k: v for k, v in fz.items() if k != "puffs"} for fz in self.fog_zones],
                         "rain": self.show_rain,
                         "rain_density": self.rain_density,
                         "rain_collision_floor": self.rain_collision_floor,
@@ -735,6 +803,8 @@ class StillnessEditor:
                         weather = data.get("weather", {})
                         self.show_fog = weather.get("fog", False)
                         self.fog_color_idx = weather.get("fog_color_idx", 0)
+                        self.fog_zones = weather.get("fog_zones", [])
+                        for fz in self.fog_zones: self.init_fog_puffs(fz)
                         self.show_rain = weather.get("rain", False)
                         self.rain_density = weather.get("rain_density", 100)
                         self.rain_collision_floor = weather.get("rain_collision_floor", True)
@@ -798,6 +868,11 @@ class StillnessEditor:
             self.status_message = f"FOG COLOR CHANGED ({self.fog_color_idx + 1}/{len(self.fog_presets)})"
             self.status_timer = 60
         elif val == "weather_config": self.show_weather_settings()
+        elif val == "fog_tool":
+            self.fog_tool_active = not self.fog_tool_active
+            self.status_message = "FOG TOOL " + ("ON" if self.fog_tool_active else "OFF")
+            self.status_timer = 60
+            if self.fog_tool_active: self.selected_item = None # Deselect brushes
 
     def show_weather_settings(self):
         self.show_weather_config = True
